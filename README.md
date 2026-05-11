@@ -1,5 +1,7 @@
 # Interactive Html Bom 
 
+[English](./README.en.md)
+
 交互式 BOM（物料清单）查看器，适用于嘉立创 EDA 专业版（V3）。
 
 ## 功能
