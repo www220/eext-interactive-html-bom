@@ -5213,14 +5213,14 @@ function id(v){return v;}    // identity (unused, kept for reference)
 async function safe(fn,l,fb=[]){try{return await fn();}catch(e){console.warn('[iBOM]',l,e);return fb;}}
 
 console.log('[iBOM Export] 采集数据...');
-const[comp,pads,lines,arcs,polys,vias,pours,poureds,strs,fills,nets]=await Promise.all([
+const[comp,pads,lines,arcs,polys,vias,pours,poureds,strs,fills,nets,attrs]=await Promise.all([
   safe(()=>eda.pcb_PrimitiveComponent.getAll(),'Comp'),safe(()=>eda.pcb_PrimitivePad.getAll(),'Pad'),
   safe(()=>eda.pcb_PrimitiveLine.getAll(),'Line'),safe(()=>eda.pcb_PrimitiveArc.getAll(),'Arc'),
   safe(()=>eda.pcb_PrimitivePolyline.getAll(),'Poly'),safe(()=>eda.pcb_PrimitiveVia.getAll(),'Via'),
   safe(()=>eda.pcb_PrimitivePour.getAll(),'Pour'),safe(()=>eda.pcb_PrimitivePoured.getAll(),'Poured'),
   safe(()=>eda.pcb_PrimitiveString.getAll(),'Str'),safe(()=>eda.pcb_PrimitiveFill.getAll(),'Fill'),
-  safe(()=>eda.pcb_Net.getAllNetsName(),'Net')]);
-console.log(`[iBOM] ${comp.length}comp ${lines.length}line ${polys.length}poly`);
+  safe(()=>eda.pcb_Net.getAllNetsName(),'Net'),safe(()=>eda.pcb_PrimitiveAttribute.getAll(),'Attr')]);
+console.log(`[iBOM] ${comp.length}comp ${pads.length}pad ${lines.length}line ${arcs.length}arc ${polys.length}poly ${vias.length}vias ${pours.length}pour ${poureds.length}poured ${strs.length}str ${nets.length}net ${attrs.length}attr`);
 
 // === BOARD EDGES (layer 11) — ALL Y negated ===
 const MG=5;let bx1=Infinity,by1=Infinity,bx2=-Infinity,by2=-Infinity;
@@ -5613,32 +5613,35 @@ function resolveTemplateName(c) {
   if (field === 'Supplier Part') return g(c,'supplierId') || '';
   return raw;
 }
-function resolveFootprint(c) {
+function resolveField(c, f1,f2,f3,f4) {
   var op = g(c,'otherProperty') || c.otherProperty || {};
-  return op['Footprint'] || op['footprint'] || '';
+  return op[f1] || op[f1.toLowerCase()] || (f2 && (op[f2] || op[f2.toLowerCase()])) || (f3 && (op[f3] || op[f3.toLowerCase()])) || (f4 && (op[f4] || op[f4.toLowerCase()])) || '';
 }
 
 for(const c of comp){
   const des=g(c,'designator')||'';
   if(g(c,'addIntoBom')===false){skipped.push(des);continue;}
   const name=resolveTemplateName(c);
-  const fpName=resolveFootprint(c);
+  const fpName=resolveField(c, 'Footprint');
+  const value=resolveField(c, 'Value', '值', '数值');
+  const valtage=resolveField(c,'Voltage Rating', 'Voltage Rated', '额定电压', '电压');
   const lid=gL(c),ly=lid===1?'F':'B';
   const mfr=g(c,'manufacturer')||'',mfrId=g(c,'manufacturerId')||'';
   const sup=g(c,'supplier')||'',supId=g(c,'supplierId')||'';
   if(mfr)hasCC.M=true;if(sup)hasCC.S=true;
-  active.push({designator:des,name,fpName,layer:ly,manufacturer:mfr,manufacturerId:mfrId,supplier:sup,supplierId:supId});
+  active.push({designator:des,name,fpName,value,valtage,layer:ly,manufacturer:mfr,manufacturerId:mfrId,supplier:sup,supplierId:supId});
 }
 const cc=[];if(hasCC.M)cc.push('Manufacturer');if(hasCC.S)cc.push('Supplier');
-function grp(items){const m=new Map();for(const it of items){const key=it.name+'||'+it.fpName;if(!m.has(key))m.set(key,[]);m.get(key).push(it);}const rows=[];for(const[key,its]of m){rows.push([its.length,its[0].name,its[0].fpName,its.map(it=>[it.designator,refIdx[it.designator]!==undefined?refIdx[it.designator]:0]),cc.map(c2=>{if(c2==='Manufacturer')return its[0].manufacturer;if(c2==='Supplier')return its[0].supplierId||its[0].supplier;return '';})]);} return rows;}
-const bom={both:grp(active),F:grp(active.filter(i=>i.layer==='F')),B:grp(active.filter(i=>i.layer==='B')),skipped,customColumns:cc};
+function grp(items){const m=new Map();for(const it of items){const key=it.name+'||'+it.fpName+'||'+it.value+'||'+it.manufacturerId+'||'+it.supplierId;if(!m.has(key))m.set(key,[]);m.get(key).push(it);}const rows=[];for(const[key,its]of m){rows.push(its.map(it=>[it.designator,refIdx[it.designator]!==undefined?refIdx[it.designator]:it.designator]));} return rows;}
+function grpf(items){const m=new Map();for(const it of items){const key=it.name+'||'+it.fpName+'||'+it.value+'||'+it.manufacturerId+'||'+it.supplierId;if(!m.has(key))m.set(key,[]);m.get(key).push(it);}const rows={};for(const[key,its]of m){for(const it of its){rows[refIdx[it.designator]!==undefined?refIdx[it.designator]:it.designator]=[(it.value||it.name)+(it.valtage?'/'+it.valtage:''),it.fpName,it.manufacturerId,it.supplierId]}}; return rows;}
+const bom={both:grp(active),fields:grpf(active),F:grp(active.filter(i=>i.layer==='F')),B:grp(active.filter(i=>i.layer==='B')),skipped,customColumns:cc};
 
 
   let title='EasyEDA Pro Project',company='Unknown';
   try{title=(await eda.dmt_Board.getCurrentBoardInfo()).name||title;}catch(e){}
   try{company=(await eda.dmt_SelectControl.getCurrentDocumentInfo()).company||company;}catch(e){}
   const now=new Date(),date=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
-  return {ibom_version:'v2.3-50-g53ae\n',edges_bbox,edges,drawings:{silkscreen:silk,fabrication:{F:[],B:[]}},footprints,metadata:{title,revision:'0',company,date},tracks,zones,pads:[],nets,bom};
+  return {ibom_version:'v2.10.0-1647296\n',edges_bbox,edges,drawings:{silkscreen:silk,fabrication:{F:[],B:[]}},footprints,metadata:{title,revision:'0',company,date},tracks,zones,pads:[],nets,bom};
 }
 
 // === Data fixer (from standalone viewer) ===
@@ -5814,62 +5817,6 @@ function fixPcbData(data) {
     fixPadHoles(data.pads);
     (data.footprints || []).forEach(function(f) { fixPadHoles(f.pads); });
 
-    // 6. Build ref→footprintIndex lookup
-    var refToIndex = {};
-    (data.footprints || []).forEach(function(f, idx) { refToIndex[f.ref] = idx; });
-
-    // 7. Fix BOM rows: refs format, custom columns format, and template variable cleanup
-    var cols = data.bom && data.bom.customColumns || [];
-    function fixBomRows(rows) {
-      if (!rows || !Array.isArray(rows)) return [];
-      return rows.map(function(row) {
-        // Clean template variables like ={Value}, ={Manufacturer Part}
-        if (typeof row[1] === 'string' && row[1].match(/^=\{.*\}$/)) row[1] = '';
-        if (typeof row[2] === 'string' && row[2].match(/^=\{.*\}$/)) row[2] = '';
-        var refs = row[3];
-        if (refs && refs.length > 0 && !Array.isArray(refs[0])) {
-          row[3] = refs.map(function(r) {
-            return [r, refToIndex[r] !== undefined ? refToIndex[r] : 0];
-          });
-        }
-        var cf = row[4];
-        if (cf && !Array.isArray(cf)) {
-          row[4] = cols.map(function(col) { return cf[col] || ""; });
-        }
-        return row;
-      });
-    }
-    if (data.bom) {
-      data.bom.both = fixBomRows(data.bom.both);
-      data.bom.F = fixBomRows(data.bom.F);
-      data.bom.B = fixBomRows(data.bom.B);
-    }
-
-    // 8. Fix BOM grouping: if all components have empty name, regroup by ref prefix
-    if (data.bom && data.bom.both && data.bom.both.length === 1 && data.bom.both[0][1] === "") {
-      var fpByPrefix = {};
-      (data.footprints || []).forEach(function(f, idx) {
-        var m = f.ref.match(/^([A-Za-z]+)/);
-        var prefix = m ? m[1] : 'OTHER';
-        if (!fpByPrefix[prefix]) fpByPrefix[prefix] = [];
-        fpByPrefix[prefix].push({ ref: f.ref, idx: idx, layer: f.layer });
-      });
-      var newBoth = [], newF = [], newB = [];
-      Object.keys(fpByPrefix).sort().forEach(function(prefix) {
-        var items = fpByPrefix[prefix];
-        var refs = items.map(function(it) { return [it.ref, it.idx]; });
-        var refsF = items.filter(function(it) { return it.layer === 'F'; }).map(function(it) { return [it.ref, it.idx]; });
-        var refsB = items.filter(function(it) { return it.layer === 'B'; }).map(function(it) { return [it.ref, it.idx]; });
-        var cv = cols.map(function() { return ""; });
-        newBoth.push([refs.length, prefix, prefix, refs, cv]);
-        if (refsF.length) newF.push([refsF.length, prefix, prefix, refsF, cv]);
-        if (refsB.length) newB.push([refsB.length, prefix, prefix, refsB, cv]);
-      });
-      data.bom.both = newBoth;
-      data.bom.F = newF;
-      data.bom.B = newB;
-    }
-
     console.log('[iBOM Viewer] Fixed:', data.footprints.length, 'footprints,',
       data.tracks.F.length, 'F tracks,', data.tracks.B.length, 'B tracks,',
       (data.bom ? data.bom.both.length : 0), 'BOM groups');
@@ -5901,8 +5848,8 @@ document.addEventListener('DOMContentLoaded', async function() {
     fixPcbData(data);
     window.pcbdata = data;
     window.config = {
-      show_fabrication:false, redraw_on_drag:true, highlight_pin1:false,
-      extra_fields: data.bom&&data.bom.customColumns?data.bom.customColumns:[],
+      show_fabrication:false, redraw_on_drag:true, highlight_pin1:"none",
+      extra_fields: [], fields:["Value","Footprint","Manufacturer","Supplier"],
       dark_mode:false, bom_view:"left-right", board_rotation:0.0,
       checkboxes:"Sourced,Placed", show_silkscreen:true, show_pads:true, layer_view:"FB",
       show_crosshair:false
