@@ -5151,6 +5151,7 @@ const CM={1:['F'],2:['B'],12:['F','B']},SM={3:'F',4:'B'};
 function mC(id){return CM[id]||[];}
 function mS(id){return SM[id]!==undefined?SM[id]:null;}
 function isOL(id){return id===11;}
+function isML(id){return id===12;}
 
 // SVG arc command
 function arcC(px,py,x,y,a){
@@ -5162,13 +5163,15 @@ function arcC(px,py,x,y,a){
   return`A ${r},${r} 0 ${aa>Math.PI?1:0},${a>0?0:1} ${x},${y}`;
 }
 // SVG rounded rect
-function rrP(x,y,w,h,rx,ry){
+function rrP(x,y,w,h,rot,rx,ry){
   // If one radius is 0, use the other (Pro sometimes stores radius in only one)
   if(rx===0&&ry!==0)rx=ry;
   if(ry===0&&rx!==0)ry=rx;
   rx=Math.min(rx,w/2);ry=Math.min(ry,h/2);
-  if(rx===0&&ry===0)return`M ${x},${y} L ${x+w},${y} L ${x+w},${y+h} L ${x},${y+h} Z`;
-  return`M ${x+rx},${y} L ${x+w-rx},${y} A ${rx},${ry} 0 0,1 ${x+w},${y+ry} L ${x+w},${y+h-ry} A ${rx},${ry} 0 0,1 ${x+w-rx},${y+h} L ${x+rx},${y+h} A ${rx},${ry} 0 0,1 ${x},${y+h-ry} L ${x},${y+ry} A ${rx},${ry} 0 0,1 ${x+rx},${y} Z`;
+  var rad=rot*Math.PI/180;
+  var cosR=Math.cos(rad),sinR=Math.sin(rad);
+  if(rx===0&&ry===0)return`M ${x},${y} L ${x+w*cosR},${y-w*sinR} L ${x+w*cosR+h*sinR},${y+h*cosR-w*sinR} L ${x+h*sinR},${y+h*cosR} Z`;
+  return`M ${x+rx*cosR},${y-rx*sinR} L ${x+w*cosR-rx*cosR},${y-w*sinR+rx*sinR} A ${rx},${ry} 0 0,1 ${x+w*cosR+ry*sinR},${y-w*sinR+ry*cosR} L ${x+w*cosR+h*sinR-ry*sinR},${y+h*cosR-w*sinR-ry*cosR} A ${rx},${ry} 0 0,1 ${x+w*cosR+h*sinR-rx*cosR},${y+h*cosR-w*sinR+rx*sinR} L ${x+h*sinR+rx*cosR},${y+h*cosR-rx*sinR} A ${rx},${ry} 0 0,1 ${x+h*sinR-ry*sinR},${y+h*cosR-ry*cosR} L ${x+ry*sinR},${y+ry*cosR} A ${rx},${ry} 0 0,1 ${x+rx*cosR},${y-rx*sinR} Z`;
 }
 
 // Polygon→SVG. fy: function to transform Y (identity or negate)
@@ -5179,15 +5182,9 @@ function p2s(d,fy){
   const P=[];let i=0,px=null,py=null,f=true;
   while(i<d.length){const c=d[i];
     if(typeof c==='string'){const cmd=c.toUpperCase();
-      if(cmd==='CIRCLE'&&i+3<d.length){const cx=d[i+1],cy=fy(d[i+2]),r=d[i+3];i+=4;P.push(`M ${cx+r},${cy} A ${r},${r} 0 1,0 ${cx-r},${cy} A ${r},${r} 0 1,0 ${cx+r},${cy}`);px=cx+r;py=cy;f=false;}
-      else if(cmd==='R'&&i+6<d.length){const ox=d[i+1],oy=d[i+2],ow=d[i+3],oh=d[i+4],rot=d[i+5],round=d[i+6];i+=7;
-        // R command: rotation=90 swaps w and h. Use neg(oy) as default Y.
-        var rw=(rot===90||rot===-90)?oh:ow, rh=(rot===90||rot===-90)?ow:oh;
-        const ny=fy===neg?fy(oy):fy(oy);
-        P.push(rrP(ox,ny,rw,rh,round,round));px=ox+round;py=ny;f=false;}
-      else if(cmd==='ARC'&&i+3<d.length){let ad=d[i+1],ax=d[i+2],ay=fy(d[i+3]);i+=4;
-        let ar=ad*Math.PI/180;
-        if(px!==null)P.push(arcC(px,py,ax,ay,ar));px=ax;py=ay;}
+      if(cmd==='CIRCLE'&&i+3<d.length){const cx=d[i+1],cy=fy(d[i+2]),r=d[i+3];i+=4;P.push(`M ${cx+r},${cy} A ${r},${r} 0 1,0 ${cx-r},${cy} A ${r},${r} 0 1,0 ${cx+r},${cy}`);px=cx;py=cy;f=false;}
+      else if(cmd==='R'&&i+6<d.length){const rx=d[i+1],ry=fy(d[i+2]),rw=d[i+3],rh=d[i+4],rot=d[i+5],round=d[i+6];i+=7;P.push(rrP(rx,ry,rw,rh,rot,round,round));px=rx;py=ry;f=false;}
+      else if(cmd==='ARC'&&i+3<d.length){const ad=d[i+1],ax=d[i+2],ay=fy(d[i+3]),ar=ad*Math.PI/180;i+=4;if(!f)P.push(arcC(px,py,ax,ay,ar));px=ax;py=ay;}
       else if(cmd==='L'&&i+2<d.length){const lx=d[i+1],ly=fy(d[i+2]);i+=3;P.push(f?`M ${lx},${ly}`:`L ${lx},${ly}`);px=lx;py=ly;f=false;}
       else{i++;}}
     else if(typeof c==='number'&&i+1<d.length){const nx=c,ny=fy(d[i+1]);i+=2;P.push(f?`M ${nx},${ny}`:`L ${nx},${ny}`);px=nx;py=ny;f=false;}
@@ -5200,8 +5197,8 @@ function cp2s(cp,fy){
     if(Array.isArray(cp.complexPolygon))cp=cp.complexPolygon;
     else if(Array.isArray(cp.polygon))cp=cp.polygon;
     else{try{cp=Array.from(cp);}catch(e){return'';}}}
-  else if(Array.isArray(cp)&&!Array.isArray(cp[0])) return p2s(cp,fy); 
   if(!Array.isArray(cp)||cp.length===0)return'';
+  if(Array.isArray(cp)&&!Array.isArray(cp[0])) return p2s(cp,fy); 
   return cp.map(s=>{
     if(s&&!Array.isArray(s)&&typeof s==='object'&&Array.isArray(s.polygon))return p2s(s.polygon,fy);
     return p2s(s,fy);
@@ -5210,7 +5207,7 @@ function cp2s(cp,fy){
 function neg(v){return -v;}  // Y-negate: Pro Y-up -> iBOM Y-down
 function id(v){return v;}    // identity (unused, kept for reference)
 
-async function safe(fn,l,fb=[]){try{return await fn();}catch(e){console.warn('[iBOM]',l,e);return fb;}}
+async function safe(fn,l,fb=[]){try{return await fn();}catch(e){console.warn('[iBOM Export]',l,e);return fb;}}
 
 console.log('[iBOM Export] 采集数据...');
 const[comp,pads,lines,arcs,polys,vias,pours,poureds,strs,fills,nets,attrs]=await Promise.all([
@@ -5220,21 +5217,186 @@ const[comp,pads,lines,arcs,polys,vias,pours,poureds,strs,fills,nets,attrs]=await
   safe(()=>eda.pcb_PrimitivePour.getAll(),'Pour'),safe(()=>eda.pcb_PrimitivePoured.getAll(),'Poured'),
   safe(()=>eda.pcb_PrimitiveString.getAll(),'Str'),safe(()=>eda.pcb_PrimitiveFill.getAll(),'Fill'),
   safe(()=>eda.pcb_Net.getAllNetsName(),'Net'),safe(()=>eda.pcb_PrimitiveAttribute.getAll(),'Attr')]);
-console.log(`[iBOM] ${comp.length}comp ${pads.length}pad ${lines.length}line ${arcs.length}arc ${polys.length}poly ${vias.length}vias ${pours.length}pour ${poureds.length}poured ${strs.length}str ${nets.length}net ${attrs.length}attr`);
+console.log(`[iBOM Export] 数据信息:${comp.length}comp ${pads.length}pad ${lines.length}line ${arcs.length}arc ${polys.length}poly ${vias.length}vias ${pours.length}pour ${poureds.length}poured ${strs.length}str ${fills.length}fill ${nets.length}net ${attrs.length}attr`);
+
+// === SILKSCREEN (ALL Y negated) ===
+const silk={F:[],B:[],O:[],M:[]};
+// === FOOTPRINT SILKSCREEN (from footprint library files) ===
+console.log('[iBOM Export] 提取封装信息...');
+// Minimal zip reader: extract first file from a zip File/Blob
+async function unzipFirst(file){
+  var buf=await file.arrayBuffer();var dv=new DataView(buf);
+  // Find first local file header (PK\x03\x04)
+  if(dv.getUint32(0,true)!==0x04034b50)return null;
+  var fnLen=dv.getUint16(26,true),exLen=dv.getUint16(28,true);
+  var method=dv.getUint16(8,true);
+  var cSize=dv.getUint32(18,true),uSize=dv.getUint32(22,true);
+  var dataOff=30+fnLen+exLen;
+  var raw=new Uint8Array(buf,dataOff,cSize);
+  if(method===0)return new TextDecoder().decode(raw);
+  if(method===8){
+    // Deflate: use DecompressionStream if available
+    if(typeof DecompressionStream!=='undefined'){
+      var ds=new DecompressionStream('deflate-raw');
+      var writer=ds.writable.getWriter();
+      writer.write(raw);writer.close();
+      var reader=ds.readable.getReader();
+      var chunks=[],totalLen=0;
+      while(true){var{done,value}=await reader.read();if(done)break;chunks.push(value);totalLen+=value.length;}
+      var result=new Uint8Array(totalLen);var off=0;
+      for(var ch of chunks){result.set(ch,off);off+=ch.length;}
+      return new TextDecoder().decode(result);
+    }
+    return null;
+  }
+  return null;
+}
+// Parse .elibu text: extract POLY and FILL on silk layers (3=top silk, 4=bot silk)
+function parseElibSilk(text){
+  var items={F:[],B:[],O:[],M:[]};
+  if(!text)return items;
+  var lines2=text.split('\n');
+  for(var line of lines2){
+    var parts=line.split('||');if(parts.length<2)continue;
+    var hdr,data;
+    try{hdr=JSON.parse(parts[0]);data=JSON.parse(parts[1].replace(/\|$/,''));}catch(e){continue;}
+    var type=hdr.type;
+    if(type==='POLY'){
+      var lid2=data.layerId;
+      if(lid2!==3&&lid2!==4&&lid2!==11&&lid2!==12)continue;
+      var side=lid2===3?'F':lid2===4?'B':lid2===11?'O':'M';
+      var path=data.path;var w=data.width||0;
+      if(path)items[side].push({type:'POLY',path:path,width:w});
+    } else if(type==='FILL'){
+      var lid2=data.layerId;
+      if(lid2!==3&&lid2!==4&&lid2!==11&&lid2!==12)continue;
+      var side=lid2===3?'F':lid2===4?'B':lid2===11?'O':'M';
+      var path=data.path;
+      if(path)items[side].push({type:'FILL',path:path,width:0});
+    }
+  }
+  return items;
+}
+// Transform local footprint coords to global PCB coords
+// localX,localY: footprint-local coords (mm, Y-up)
+// cx,cy: component center in PCB coords (0.1mm, Y already negated)
+// rot: component rotation in degrees
+// layer: 'F' or 'B'
+// Returns [globalX, globalY] in PCB coords (0.1mm, Y-down)
+function fpToGlobal(lx,ly,cx,cy,rot,layer){
+  // Footprint coords are in mm(?), PCB coords in 0.1mm — actually both should be same unit
+  // Based on elibu data: coords like 180.003, -54.998 match 0.1mm scale
+  var rad=rot*Math.PI/180;
+  var cosR=Math.cos(rad),sinR=Math.sin(rad);
+  // If back layer, mirror X
+  var mx=layer==='B'?-lx:lx;
+  var my=ly;
+  // Rotate
+  var rx=mx*cosR-my*sinR;
+  var ry=mx*sinR+my*cosR;
+  // Translate to global (cy is already negated, ly needs negation for Y-down)
+  return [cx+rx, cy-ry];
+}
+function fpSilkToSvg(path,cx,cy,rot,layer){
+  if(!path||!Array.isArray(path)||path.length<2)return null;
+  var parts=[];var i=0;var prevX=0,prevY=0,first=true;
+  while(i<path.length){
+    var c=path[i];
+    if(typeof c==='string'){var cmd=c.toUpperCase();
+       if(cmd==='CIRCLE'&&i+3<path.length){
+        var cpt=fpToGlobal(path[i+1],path[i+2],cx,cy,rot,layer),r=path[i+3];
+        parts.push('M '+(cpt[0]+r)+','+cpt[1]+' A '+r+','+r+' 0 1,0 '+(cpt[0]-r)+','+cpt[1]+' A '+r+','+r+' 0 1,0 '+(cpt[0]+r)+','+cpt[1]);
+        prevX=cpt[0];prevY=cpt[1];
+        i+=4;first=false;
+      }else if(cmd==='R'&&i+6<path.length){
+        var rpt=fpToGlobal(path[i+1],path[i+2],cx,cy,rot,layer),rw=path[i+3],rh=path[i+4],r=path[i+5],round=path[i+6];
+        parts.push(rrP(rpt[0],rpt[1],rw,rh,r+rot,round,round));
+        prevX=rpt[0];prevY=rpt[1];
+        i+=7;first=false;
+      } else if(cmd==='ARC'&&i+3<path.length){
+        var ad=path[i+1],apt=fpToGlobal(path[i+2],path[i+3],cx,cy,rot,layer),ar=ad*Math.PI/180;
+        if(!first) parts.push(arcC(prevX,prevY,apt[0],apt[1],ar));
+        prevX=apt[0];prevY=apt[1];
+        i+=4;
+      } else if(cmd==='L'&&i+2<path.length){
+        var lpt=fpToGlobal(path[i+1],path[i+2],cx,cy,rot,layer);
+        parts.push((first?'M ':'L ')+lpt[0]+','+lpt[1]);
+        prevX=lpt[0];prevY=lpt[1];
+        i+=3;first=false;
+      } else {i++;}
+    } else if(typeof c==='number'&&i+1<path.length){
+      var npt=fpToGlobal(c,path[i+1],cx,cy,rot,layer);
+      parts.push((first?'M ':'L ')+npt[0]+','+npt[1]);
+      prevX=npt[0];prevY=npt[1];
+      i+=2;first=false;
+    } else {i++;}
+  }
+  return parts.join(' ');
+}
+function fpCSilkToSvg(item,cx,cy,rot,layer){
+  var path=item.path;
+  if(!Array.isArray(path)||path.length===0)return'';
+  if(Array.isArray(path)&&!Array.isArray(path[0])) return fpSilkToSvg(path,cx,cy,rot,layer); 
+  return path.map(s=>{
+     return fpSilkToSvg(s,cx,cy,rot,layer);
+  }).filter(Boolean).join(' ');
+}
+// Cache: footprintUuid -> parsed silk items
+var fpSilkCache={};
+var fpSilkCount=0;
+for(var ci=0;ci<comp.length;ci++){
+  var c=comp[ci];
+  var fpId=c.primitiveId||g(c,'primitiveId');
+  var fpInfo=c.footprint||g(c,'footprint');
+  if(!fpInfo||!fpInfo.uuid)continue;
+  var fpUuid=fpInfo.uuid;
+  var libUuid=fpInfo.libraryUuid||'';
+  var cacheKey=fpUuid+'|'+libUuid;
+  var silkItems;
+  if(fpSilkCache[cacheKey]!==undefined){
+    silkItems=fpSilkCache[cacheKey];
+  } else {
+    silkItems=null;
+    try{
+      var fpFile=await eda.sys_FileManager.getFootprintFileByFootprintUuid(fpUuid,libUuid,'elibz2');
+      if(fpFile){
+        var elibText=await unzipFirst(fpFile);
+        if(elibText)silkItems=parseElibSilk(elibText);
+      }
+    }catch(e){console.warn('[iBOM Export]',g(c,'designator'),e);}
+    fpSilkCache[cacheKey]=silkItems;
+  }
+  if(!silkItems)continue;
+  var cx2=g(c,'x')||0,cy2=neg(g(c,'y')||0);
+  var rot2=g(c,'rotation')||0;
+  var lid2=gL(c),clayer=lid2===1?'F':'B';
+  // Determine silk layer mapping: if component is on back, top silk of footprint maps to back silk of PCB
+  ['F','B','O','M'].forEach(function(fpSide){
+    var pcbSide;
+    if(clayer==='F')pcbSide=fpSide;
+    else pcbSide=fpSide==='F'?'B':fpSide==='B'?'F':fpSide;// mirror for back-side components
+    (silkItems[fpSide]||[]).forEach(function(item){
+      var svg=fpCSilkToSvg(item,cx2,cy2,rot2,(clayer=='B'&&(pcbSide=='B'||pcbSide=='F'))?'B':'F');
+      if(svg){
+        silk[pcbSide].push({type:'polyline',svgpath:svg,width:item.width||1,primitiveId:fpId});
+        fpSilkCount++;
+      }
+    });
+  });
+}
+console.log(`[iBOM Export] 封装信息:${fpSilkCount} ${silk['F'].length}F ${silk['B'].length}B ${silk['O'].length}O ${silk['M'].length}M`);
 
 // === BOARD EDGES (layer 11) — ALL Y negated ===
-const MG=5;let bx1=Infinity,by1=Infinity,bx2=-Infinity,by2=-Infinity;
-function tb(x,y){if(x<bx1)bx1=x;if(y<by1)by1=y;if(x>bx2)bx2=x;if(y>by2)by2=y;}
 const edges=[];
-for(const l of lines){if(!isOL(gL(l)))continue;const sx=g(l,'startX'),sy=neg(g(l,'startY')),ex=g(l,'endX'),ey=neg(g(l,'endY'));tb(sx,sy);tb(ex,ey);edges.push({type:'polyline',net:gN(l),start:[0,0],end:[0,0],svgpath:`M ${sx},${sy} L ${ex},${ey}`,thickness:gW(l),width:gW(l)});}
-for(const a of arcs){if(!isOL(gL(a)))continue;const sx=g(a,'startX'),sy=neg(g(a,'startY')),ex=g(a,'endX'),ey=neg(g(a,'endY')),ar=g(a,'arcAngle')*Math.PI/180;tb(sx,sy);tb(ex,ey);edges.push({type:'arc',net:gN(a),svgpath:`M ${sx},${sy} ${arcC(sx,sy,ex,ey,ar)}`,thickness:gW(a),width:gW(a)});}
-for(const pl of polys){if(!isOL(gL(pl)))continue;const pg=gP(pl),svg=p2s(pg,neg);
-  if(Array.isArray(pg)){for(let i=0;i<pg.length;i++){const c=pg[i];if(typeof c==='number'&&i+1<pg.length&&typeof pg[i+1]==='number'){tb(c,neg(pg[i+1]));i++;}else if(typeof c==='string'){const cmd=c.toUpperCase();if(cmd==='ARC'&&i+3<pg.length){tb(pg[i+2],neg(pg[i+3]));i+=3;}else if(cmd==='L'&&i+2<pg.length){tb(pg[i+1],neg(pg[i+2]));i+=2;}else if(cmd==='R'&&i+6<pg.length){const ox=pg[i+1],oy=pg[i+2],ow=pg[i+3],oh=pg[i+4],rot=pg[i+5];var rw=(rot===90||rot===-90)?oh:ow,rh=(rot===90||rot===-90)?ow:oh;tb(ox,neg(oy));tb(ox+rw,neg(oy)+rh);i+=6;}else if(cmd==='CIRCLE'&&i+3<pg.length){const cx=pg[i+1],cy=neg(pg[i+2]),r=pg[i+3];tb(cx-r,cy-r);tb(cx+r,cy+r);i+=3;}}}}
-  if(svg)edges.push({type:'polyline',net:gN(pl),svgpath:svg,thickness:gW(pl),width:gW(pl)});}
-let edges_bbox;
-if(edges.length>0)edges_bbox={minx:bx1-MG,miny:by1-MG,maxx:bx2+MG,maxy:by2+MG};
-else{try{const fb=await eda.pcb_Primitive.getPrimitivesBBox();edges_bbox={minx:fb.x-MG,miny:neg(fb.y+fb.height)-MG,maxx:fb.x+fb.width+MG,maxy:neg(fb.y)+MG};}catch(e){edges_bbox={minx:0,miny:0,maxx:0,maxy:0};}}
-console.log(`[iBOM] ${edges.length} edges, bbox:`,JSON.stringify(edges_bbox));
+const eids=[];
+for(const l of lines){if(!isOL(gL(l)))continue;const sx=g(l,'startX'),sy=neg(g(l,'startY')),ex=g(l,'endX'),ey=neg(g(l,'endY'));eids.push(g(l,'primitiveId'));edges.push({type:'polyline',start:[0,0],end:[0,0],svgpath:`M ${sx},${sy} L ${ex},${ey}`,thickness:gW(l),width:gW(l)});}
+for(const a of arcs){if(!isOL(gL(a)))continue;const sx=g(a,'startX'),sy=neg(g(a,'startY')),ex=g(a,'endX'),ey=neg(g(a,'endY')),ar=g(a,'arcAngle')*Math.PI/180;eids.push(g(a,'primitiveId'));edges.push({type:'polyline',start:[0,0],end:[0,0],svgpath:`M ${sx},${sy} ${arcC(sx,sy,ex,ey,ar)}`,thickness:gW(a),width:gW(a)});}
+for(const pl of polys){if(!isOL(gL(pl)))continue;const svg=p2s(gP(pl),neg);if(svg){eids.push(g(pl,'primitiveId'));edges.push({type:'polyline',start:[0,0],end:[0,0],svgpath:svg,thickness:gW(pl),width:gW(pl)});}}
+for(const fl of fills){if(!isML(gL(fl)))continue;const svg=cp2s(g(fl,'complexPolygon'),neg);if(svg){eids.push(g(fl,'primitiveId'));edges.push({type:'polyline',start:[0,0],end:[0,0],svgpath:svg,thickness:gW(fl),width:gW(fl)});}}
+['O','M'].forEach(function(fs){silk[fs].forEach(function(fl){eids.push(fl.primitiveId);edges.push({type:'polyline',start:[0,0],end:[0,0],svgpath:fl.svgpath,thickness:fl.width,width:fl.width});})})
+let edges_bbox={minx:-1000,miny:-1000,maxx:1000,maxy:1000};
+if(edges.length>0){const MG=5,eb=await eda.pcb_Primitive.getPrimitivesBBox(eids);edges_bbox={minx:eb.minX-MG,miny:Math.min(-eb.minY,-eb.maxY)-MG,maxx:eb.maxX+MG,maxy:Math.max(-eb.minY,-eb.maxY)+MG};}
+console.log(`[iBOM Export] 边框信息:${edges.length}edges bbox:`+JSON.stringify(edges_bbox,(key,value)=>{if(typeof value==='number')return Number(value.toFixed(1));return value;}));
 
 // === PADS (Y as-is, NO flip) ===
 // === PADS ===
@@ -5354,16 +5516,12 @@ function pourTransformX(v){return v*10;}
 function pourP2s(d){
   if(!d||d.length===0)return'';
   if(!Array.isArray(d)){try{d=Array.from(d);}catch(e){return'';}}
-  const P=[];let i=0,px=null,py=null,f=true;
+  const P=[];let i=0,px=0,py=0,f=true;
   while(i<d.length){const c=d[i];
     if(typeof c==='string'){const cmd=c.toUpperCase();
-      if(cmd==='CIRCLE'&&i+3<d.length){const cx=pourTransformX(d[i+1]),cy=pourTransformY(d[i+2]),r=d[i+3]*10;i+=4;P.push(`M ${cx+r},${cy} A ${r},${r} 0 1,0 ${cx-r},${cy} A ${r},${r} 0 1,0 ${cx+r},${cy}`);px=cx+r;py=cy;f=false;}
-      else if(cmd==='R'&&i+6<d.length){const ox=pourTransformX(d[i+1]),oy=d[i+2],w=d[i+3]*10,h=d[i+4]*10,rot=d[i+5],round=d[i+6]*10;i+=7;
-        const ny=pourTransformY(oy);
-        P.push(rrP(ox,ny,w,h,round,round));px=ox+round;py=ny;f=false;}
-      else if(cmd==='ARC'&&i+3<d.length){let ad=d[i+1],ax=pourTransformX(d[i+2]),ay=pourTransformY(d[i+3]);i+=4;
-        let ar=ad*Math.PI/180;
-        if(px!==null)P.push(arcC(px,py,ax,ay,ar));px=ax;py=ay;}
+      if(cmd==='CIRCLE'&&i+3<d.length){const cx=pourTransformX(d[i+1]),cy=pourTransformY(d[i+2]),r=d[i+3]*10;i+=4;P.push(`M ${cx+r},${cy} A ${r},${r} 0 1,0 ${cx-r},${cy} A ${r},${r} 0 1,0 ${cx+r},${cy}`);px=cx;py=cy;f=false;}
+      else if(cmd==='R'&&i+6<d.length){const rx=pourTransformX(d[i+1]),ry=pourTransformY(d[i+2]),w=d[i+3]*10,h=d[i+4]*10,rot=d[i+5],round=d[i+6]*10;i+=7;P.push(rrP(rx,ry,w,h,rot,round,round));px=rx;py=ry;f=false;}
+      else if(cmd==='ARC'&&i+3<d.length){const ad=d[i+1],ax=pourTransformX(d[i+2]),ay=pourTransformY(d[i+3]),ar=ad*Math.PI/180;i+=4;if(!f)P.push(arcC(px,py,ax,ay,ar));px=ax;py=ay;}
       else if(cmd==='L'&&i+2<d.length){const lx=pourTransformX(d[i+1]),ly=pourTransformY(d[i+2]);i+=3;P.push(f?`M ${lx},${ly}`:`L ${lx},${ly}`);px=lx;py=ly;f=false;}
       else{i++;}}
     else if(typeof c==='number'&&i+1<d.length){const nx=pourTransformX(c),ny=pourTransformY(d[i+1]);i+=2;P.push(f?`M ${nx},${ny}`:`L ${nx},${ny}`);px=nx;py=ny;f=false;}
@@ -5376,8 +5534,8 @@ function pourCp2s(cp){
     if(Array.isArray(cp.complexPolygon))cp=cp.complexPolygon;
     else if(Array.isArray(cp.polygon))cp=cp.polygon;
     else{try{cp=Array.from(cp);}catch(e){return'';}}}
-  else if(Array.isArray(cp)&&!Array.isArray(cp[0])) return pourP2s(cp); 
   if(!Array.isArray(cp)||cp.length===0)return'';
+  if(Array.isArray(cp)&&!Array.isArray(cp[0])) return pourP2s(cp); 
   return cp.map(s=>{
     if(s&&!Array.isArray(s)&&typeof s==='object'&&Array.isArray(s.polygon))return pourP2s(s.polygon);
     return pourP2s(s);
@@ -5398,8 +5556,6 @@ for(const pd of poureds){const pid=pd.pourPrimitiveId||g(pd,'pourPrimitiveId');c
   }
 }}
 
-// === SILKSCREEN (ALL Y negated) ===
-const silk={F:[],B:[]};
 // Build set of footprint names and designators to filter from silkscreen
 const silkFilterSet=new Set();
 for(const c of comp){
@@ -5434,166 +5590,6 @@ for(const pl of polys){const s=mS(gL(pl));if(!s)continue;const svg=p2s(gP(pl),ne
 for(const f of fills){const s=mS(gL(f));if(!s)continue;const svg=cp2s(g(f,'complexPolygon'),neg);if(svg)silk[s].push({type:'polyline',svgpath:svg,width:0});}
 const silkDesSet=new Set();for(const c of comp){const des=g(c,'designator')||'';if(des)silkDesSet.add(des);}
 for(const st of strs){const s=mS(gL(st));if(!s)continue;const tx=g(st,'x')||0,ty=g(st,'y')||0,text=(g(st,'text')||'').trim();if(!text||silkShouldFilter(text,tx,ty,silkDesSet))continue;silk[s].push({text,x:tx,y:neg(ty),fontSize:g(st,'fontSize')||10,rotation:g(st,'rotation')||0});}
-
-// === FOOTPRINT SILKSCREEN (from footprint library files) ===
-console.log('[iBOM Export] 提取封装丝印...');
-// Minimal zip reader: extract first file from a zip File/Blob
-async function unzipFirst(file){
-  var buf=await file.arrayBuffer();var dv=new DataView(buf);
-  // Find first local file header (PK\x03\x04)
-  if(dv.getUint32(0,true)!==0x04034b50)return null;
-  var fnLen=dv.getUint16(26,true),exLen=dv.getUint16(28,true);
-  var method=dv.getUint16(8,true);
-  var cSize=dv.getUint32(18,true),uSize=dv.getUint32(22,true);
-  var dataOff=30+fnLen+exLen;
-  var raw=new Uint8Array(buf,dataOff,cSize);
-  if(method===0)return new TextDecoder().decode(raw);
-  if(method===8){
-    // Deflate: use DecompressionStream if available
-    if(typeof DecompressionStream!=='undefined'){
-      var ds=new DecompressionStream('deflate-raw');
-      var writer=ds.writable.getWriter();
-      writer.write(raw);writer.close();
-      var reader=ds.readable.getReader();
-      var chunks=[],totalLen=0;
-      while(true){var{done,value}=await reader.read();if(done)break;chunks.push(value);totalLen+=value.length;}
-      var result=new Uint8Array(totalLen);var off=0;
-      for(var ch of chunks){result.set(ch,off);off+=ch.length;}
-      return new TextDecoder().decode(result);
-    }
-    return null;
-  }
-  return null;
-}
-// Parse .elibu text: extract POLY and FILL on silk layers (3=top silk, 4=bot silk)
-function parseElibSilk(text){
-  var items={F:[],B:[]};
-  if(!text)return items;
-  var lines2=text.split('\n');
-  for(var line of lines2){
-    var parts=line.split('||');if(parts.length<2)continue;
-    var hdr,data;
-    try{hdr=JSON.parse(parts[0]);data=JSON.parse(parts[1].replace(/\|$/,''));}catch(e){continue;}
-    var type=hdr.type;
-    if(type==='POLY'){
-      var lid2=data.layerId;
-      if(lid2!==3&&lid2!==4)continue;
-      var side=lid2===3?'F':'B';
-      var path=data.path;var w=data.width||0;
-      if(path)items[side].push({type:'POLY',path:path,width:w});
-    } else if(type==='FILL'){
-      var lid2=data.layerId;
-      if(lid2!==3&&lid2!==4)continue;
-      var side=lid2===3?'F':'B';
-      var path=data.path;
-      if(path)items[side].push({type:'FILL',path:path,width:0});
-    }
-  }
-  return items;
-}
-// Transform local footprint coords to global PCB coords
-// localX,localY: footprint-local coords (mm, Y-up)
-// cx,cy: component center in PCB coords (0.1mm, Y already negated)
-// rot: component rotation in degrees
-// layer: 'F' or 'B'
-// Returns [globalX, globalY] in PCB coords (0.1mm, Y-down)
-function fpToGlobal(lx,ly,cx,cy,rot,layer){
-  // Footprint coords are in mm(?), PCB coords in 0.1mm — actually both should be same unit
-  // Based on elibu data: coords like 180.003, -54.998 match 0.1mm scale
-  var rad=rot*Math.PI/180;
-  var cosR=Math.cos(rad),sinR=Math.sin(rad);
-  // If back layer, mirror X
-  var mx=layer==='B'?-lx:lx;
-  var my=ly;
-  // Rotate
-  var rx=mx*cosR-my*sinR;
-  var ry=mx*sinR+my*cosR;
-  // Translate to global (cy is already negated, ly needs negation for Y-down)
-  return [cx+rx, cy-ry];
-}
-function fpSilkToSvg(item,cx,cy,rot,layer){
-  var path=item.path;
-  if(!path||!Array.isArray(path)||path.length<2)return null;
-  var parts=[];var i=0;var first=true;
-  var prevX=0,prevY=0;
-  while(i<path.length){
-    var c=path[i];
-    if(typeof c==='string'){
-      var cmd=c.toUpperCase();
-      if(cmd==='L'&&i+2<path.length){
-        var pt=fpToGlobal(path[i+1],path[i+2],cx,cy,rot,layer);
-        parts.push((first?'M ':'L ')+pt[0]+','+pt[1]);
-        prevX=pt[0];prevY=pt[1];
-        i+=3;first=false;
-      } else if(cmd==='CIRCLE'&&i+3<path.length){
-        var cpt=fpToGlobal(path[i+1],path[i+2],cx,cy,rot,layer);
-        var r=path[i+3];
-        parts.push('M '+(cpt[0]+r)+','+cpt[1]+' A '+r+','+r+' 0 1,0 '+(cpt[0]-r)+','+cpt[1]+' A '+r+','+r+' 0 1,0 '+(cpt[0]+r)+','+cpt[1]);
-        prevX=cpt[0]+r;prevY=cpt[1];
-        i+=4;first=false;
-      } else if(cmd==='ARC'&&i+3<path.length){
-        var ad=path[i+1],ax=path[i+2],ay=path[i+3];
-        var apt=fpToGlobal(ax,ay,cx,cy,rot,layer);
-        var ar2=ad*Math.PI/180;
-        if(!first){
-          parts.push(arcC(prevX,prevY,apt[0],apt[1],ar2));
-        }
-        prevX=apt[0];prevY=apt[1];
-        i+=4;
-      } else {i++;}
-    } else if(typeof c==='number'&&i+1<path.length){
-      var pt=fpToGlobal(c,path[i+1],cx,cy,rot,layer);
-      parts.push((first?'M ':'L ')+pt[0]+','+pt[1]);
-      prevX=pt[0];prevY=pt[1];
-      i+=2;first=false;
-    } else {i++;}
-  }
-  if(parts.length<2)return null;
-  return parts.join(' ');
-}
-// Cache: footprintUuid -> parsed silk items
-var fpSilkCache={};
-var fpSilkCount=0;
-for(var ci=0;ci<comp.length;ci++){
-  var c=comp[ci];
-  var fpInfo=c.footprint||g(c,'footprint');
-  if(!fpInfo||!fpInfo.uuid)continue;
-  var fpUuid=fpInfo.uuid;
-  var libUuid=fpInfo.libraryUuid||'';
-  var cacheKey=fpUuid+'|'+libUuid;
-  var silkItems;
-  if(fpSilkCache[cacheKey]!==undefined){
-    silkItems=fpSilkCache[cacheKey];
-  } else {
-    silkItems=null;
-    try{
-      var fpFile=await eda.sys_FileManager.getFootprintFileByFootprintUuid(fpUuid,libUuid,'elibz2');
-      if(fpFile){
-        var elibText=await unzipFirst(fpFile);
-        if(elibText)silkItems=parseElibSilk(elibText);
-      }
-    }catch(e){console.warn('[iBOM] 封装丝印获取失败:',g(c,'designator'),e.message);}
-    fpSilkCache[cacheKey]=silkItems;
-  }
-  if(!silkItems)continue;
-  var cx2=g(c,'x')||0,cy2=neg(g(c,'y')||0);
-  var rot2=g(c,'rotation')||0;
-  var lid2=gL(c),clayer=lid2===1?'F':'B';
-  // Determine silk layer mapping: if component is on back, top silk of footprint maps to back silk of PCB
-  ['F','B'].forEach(function(fpSide){
-    var pcbSide;
-    if(clayer==='F')pcbSide=fpSide;
-    else pcbSide=fpSide==='F'?'B':'F';// mirror for back-side components
-    (silkItems[fpSide]||[]).forEach(function(item){
-      var svg=fpSilkToSvg(item,cx2,cy2,rot2,clayer);
-      if(svg){
-        silk[pcbSide].push({type:'polyline',svgpath:svg,width:item.width||0});
-        fpSilkCount++;
-      }
-    });
-  });
-}
-console.log('[iBOM Export] 封装丝印:', fpSilkCount, '条');
 
 // === BOM ===
 const skipped=[],hasCC={M:false,S:false},active=[];
@@ -5632,8 +5628,8 @@ for(const c of comp){
   active.push({designator:des,name,fpName,value,valtage,layer:ly,manufacturer:mfr,manufacturerId:mfrId,supplier:sup,supplierId:supId});
 }
 const cc=[];if(hasCC.M)cc.push('Manufacturer');if(hasCC.S)cc.push('Supplier');
-function grp(items){const m=new Map();for(const it of items){const key=it.name+'||'+it.fpName+'||'+it.value+'||'+it.manufacturerId+'||'+it.supplierId;if(!m.has(key))m.set(key,[]);m.get(key).push(it);}const rows=[];for(const[key,its]of m){rows.push(its.map(it=>[it.designator,refIdx[it.designator]!==undefined?refIdx[it.designator]:it.designator]));} return rows;}
-function grpf(items){const m=new Map();for(const it of items){const key=it.name+'||'+it.fpName+'||'+it.value+'||'+it.manufacturerId+'||'+it.supplierId;if(!m.has(key))m.set(key,[]);m.get(key).push(it);}const rows={};for(const[key,its]of m){for(const it of its){rows[refIdx[it.designator]!==undefined?refIdx[it.designator]:it.designator]=[(it.value||it.name)+(it.valtage?'/'+it.valtage:''),it.fpName,it.manufacturerId,it.supplierId]}}; return rows;}
+function grp(items){const m=new Map();for(const it of items){const key=it.name+'|'+it.fpName+'|'+it.value+'|'+it.manufacturerId+'|'+it.supplierId;if(!m.has(key))m.set(key,[]);m.get(key).push(it);}const rows=[];for(const[key,its]of m){rows.push(its.map(it=>[it.designator,refIdx[it.designator]!==undefined?refIdx[it.designator]:it.designator]));} return rows;}
+function grpf(items){const m=new Map();for(const it of items){const key=it.name+'|'+it.fpName+'|'+it.value+'|'+it.manufacturerId+'|'+it.supplierId;if(!m.has(key))m.set(key,[]);m.get(key).push(it);}const rows={};for(const[key,its]of m){for(const it of its){rows[refIdx[it.designator]!==undefined?refIdx[it.designator]:it.designator]=[(it.value||it.name)+(it.valtage?'/'+it.valtage:''),it.fpName,it.manufacturerId,it.supplierId]}}; return rows;}
 const bom={both:grp(active),fields:grpf(active),F:grp(active.filter(i=>i.layer==='F')),B:grp(active.filter(i=>i.layer==='B')),skipped,customColumns:cc};
 
 
@@ -5646,111 +5642,6 @@ const bom={both:grp(active),fields:grpf(active),F:grp(active.filter(i=>i.layer==
 
 // === Data fixer (from standalone viewer) ===
 function fixPcbData(data) {
-    // 1. Fix edges_bbox if all zeros — compute from coordinates
-    var bb = data.edges_bbox;
-    if (!bb || (bb.minx === 0 && bb.miny === 0 && bb.maxx === 0 && bb.maxy === 0)) {
-      var minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
-      function trackCoord(x, y) {
-        if (x < minx) minx = x; if (y < miny) miny = y;
-        if (x > maxx) maxx = x; if (y > maxy) maxy = y;
-      }
-      (data.footprints || []).forEach(function(f) {
-        trackCoord(f.center[0], f.center[1]);
-        (f.pads || []).forEach(function(p) { trackCoord(p.pos[0], p.pos[1]); });
-      });
-      (data.pads || []).forEach(function(p) { trackCoord(p.pos[0], p.pos[1]); });
-      if (minx !== Infinity) {
-        data.edges_bbox = { minx: minx - 50, miny: miny - 50, maxx: maxx + 50, maxy: maxy + 50 };
-      }
-    }
-
-    // 2. Fix board edge Y-axis alignment
-    // Pro exports may have edges and components in different Y coordinate spaces.
-    // Detect if they don't overlap on Y and flip edge Y to align.
-    if (data.edges && data.edges.length > 0 && data.footprints && data.footprints.length > 0) {
-      var cMinY=Infinity,cMaxY=-Infinity;
-      data.footprints.forEach(function(f) {
-        (f.pads||[]).forEach(function(p) {
-          if(p.pos[1]<cMinY)cMinY=p.pos[1]; if(p.pos[1]>cMaxY)cMaxY=p.pos[1];
-        });
-      });
-      if(cMinY===Infinity){
-        data.footprints.forEach(function(f){
-          if(f.center[1]<cMinY)cMinY=f.center[1]; if(f.center[1]>cMaxY)cMaxY=f.center[1];
-        });
-      }
-      var eb=data.edges_bbox;
-      if(cMinY!==Infinity && eb) {
-        // Calculate overlap between edge bbox and component bbox on Y axis
-        var overlapMin = Math.max(eb.miny, cMinY);
-        var overlapMax = Math.min(eb.maxy, cMaxY);
-        var overlap = Math.max(0, overlapMax - overlapMin);
-        var compRange = cMaxY - cMinY;
-        var overlapRatio = compRange > 0 ? overlap / compRange : 0;
-
-        // If less than 50% of components overlap with edges, try flipping
-        if(overlapRatio < 0.5) {
-          var flippedMinY = -eb.maxy;
-          var flippedMaxY = -eb.miny;
-          var fOverlapMin = Math.max(flippedMinY, cMinY);
-          var fOverlapMax = Math.min(flippedMaxY, cMaxY);
-          var fOverlap = Math.max(0, fOverlapMax - fOverlapMin);
-          var fOverlapRatio = compRange > 0 ? fOverlap / compRange : 0;
-
-          if(fOverlapRatio > overlapRatio) {
-            console.log('[iBOM Viewer] Edge/component Y mismatch detected (overlap ' +
-              (overlapRatio*100).toFixed(0) + '% -> ' + (fOverlapRatio*100).toFixed(0) + '%), flipping edge Y');
-            data.edges.forEach(function(edge) {
-              if(edge.svgpath) {
-                edge.svgpath = edge.svgpath.replace(/([MLAZ])\s*([-\d.]+),([-\d.]+)/gi, function(m,cmd,x,y) {
-                  return cmd + ' ' + x + ',' + (-parseFloat(y));
-                }).replace(/A\s*([-\d.]+),([-\d.]+)\s+([-\d.]+)\s+(\d),(\d)\s+([-\d.]+),([-\d.]+)/gi, function(m,rx,ry,rot,la,sw,x,y) {
-                  return 'A ' + rx + ',' + ry + ' ' + rot + ' ' + la + ',' + (sw==='0'?'1':'0') + ' ' + x + ',' + (-parseFloat(y));
-                });
-              }
-            });
-            data.edges_bbox = { minx:eb.minx, miny:flippedMinY, maxx:eb.maxx, maxy:flippedMaxY };
-            overlapRatio = fOverlapRatio;
-          }
-          // If still poor overlap after flip, try shifting edge bbox to align with components
-          if(overlapRatio < 0.5) {
-            var edgeH = data.edges_bbox.maxy - data.edges_bbox.miny;
-            var compCenterY = (cMinY + cMaxY) / 2;
-            var edgeCenterY = (data.edges_bbox.miny + data.edges_bbox.maxy) / 2;
-            var shiftY = compCenterY - edgeCenterY;
-            console.log('[iBOM Viewer] Shifting edge Y by ' + shiftY.toFixed(1) + ' to align with components');
-            data.edges.forEach(function(edge) {
-              if(edge.svgpath) {
-                edge.svgpath = edge.svgpath.replace(/([-\d.]+),([-\d.]+)/g, function(m,x,y) {
-                  return x + ',' + (parseFloat(y) + shiftY);
-                });
-              }
-            });
-            data.edges_bbox.miny += shiftY;
-            data.edges_bbox.maxy += shiftY;
-          }
-        }
-      }
-    }
-
-    // Ensure edges_bbox encompasses all content
-    if (data.edges_bbox && data.footprints && data.footprints.length > 0) {
-      var cMinX2=Infinity,cMinY2=Infinity,cMaxX2=-Infinity,cMaxY2=-Infinity;
-      data.footprints.forEach(function(f) {
-        (f.pads||[]).forEach(function(p) {
-          if(p.pos[0]<cMinX2)cMinX2=p.pos[0]; if(p.pos[1]<cMinY2)cMinY2=p.pos[1];
-          if(p.pos[0]>cMaxX2)cMaxX2=p.pos[0]; if(p.pos[1]>cMaxY2)cMaxY2=p.pos[1];
-        });
-      });
-      if(cMinX2!==Infinity) {
-        var eb2=data.edges_bbox;
-        data.edges_bbox={
-          minx:Math.min(eb2.minx,cMinX2-50), miny:Math.min(eb2.miny,cMinY2-50),
-          maxx:Math.max(eb2.maxx,cMaxX2+50), maxy:Math.max(eb2.maxy,cMaxY2+50)
-        };
-      }
-    }
-
     // 3. Fix tracks: add type field for svgpath-only tracks so drawTracks renders them
     ['F','B'].forEach(function(layer) {
       (data.tracks[layer] || []).forEach(function(t) {
@@ -5817,7 +5708,7 @@ function fixPcbData(data) {
     fixPadHoles(data.pads);
     (data.footprints || []).forEach(function(f) { fixPadHoles(f.pads); });
 
-    console.log('[iBOM Viewer] Fixed:', data.footprints.length, 'footprints,',
+    console.log('[iBOM Export] Fixed:', data.footprints.length, 'footprints,',
       data.tracks.F.length, 'F tracks,', data.tracks.B.length, 'B tracks,',
       (data.bom ? data.bom.both.length : 0), 'BOM groups');
   }
@@ -5883,20 +5774,20 @@ document.addEventListener('DOMContentLoaded', async function() {
         setTimeout(function() { try { eda.sys_IFrame.closeIFrame('ibom-export'); } catch(e) {} }, 1500);
       } catch(ex) {
         st('导出失败: ' + ex.message);
-        console.error('[iBOM Export]', ex);
+        console.error('[iBOM Pro]', ex);
       }
       return;
     }
 
     if(ov)ov.style.display='none';
     // Debug: pad shape stats
-    var _ps={};(window.pcbdata.footprints||[]).forEach(function(f){(f.pads||[]).forEach(function(p){_ps[p.shape]=(_ps[p.shape]||0)+1;});});
-    console.log('[iBOM Debug] 焊盘shape统计:', JSON.stringify(_ps));
+    // var _ps={};(window.pcbdata.footprints||[]).forEach(function(f){(f.pads||[]).forEach(function(p){_ps[p.shape]=(_ps[p.shape]||0)+1;});});
+    // console.log('[iBOM Pro] 焊盘shape统计:', JSON.stringify(_ps));
     initBOM();
     console.log('[iBOM Pro] 渲染完成');
-  } catch(e) {
-    console.error('[iBOM Pro]',e);
-    st('失败: '+e.message);
+  } catch(ex) {
+    st('失败: '+ ex.message);
+    console.error('[iBOM Pro]',ex);
   }
 });
 
