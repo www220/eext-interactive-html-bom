@@ -2735,9 +2735,20 @@ function drawProText(ctx, item, color) {
   if ("val" in item && !settings.renderValues) return;
   ctx.save(); ctx.fillStyle = color;
   ctx.translate(item.x || 0, item.y || 0);
+  ctx.lineWidth = item.width;
   if (item.rotation) ctx.rotate(-item.rotation * Math.PI / 180);
+  if (item.mirror) ctx.scale(-1, 1);
   var fontSize = item.fontSize || 10;
-  ctx.font = fontSize + "px sans-serif"; ctx.textBaseline = "alphabetic";
+  if (item.fontFamily=='default') item.fontFamily = 'sans-serif';
+  ctx.font = (item.bold?"bold ":"") + (item.italic?"italic ":"") + fontSize + "px " + item.fontFamily || "sans-serif";
+  ctx.textBaseline = item.align<=3?'top':item.align<=6?'middle':'bottom';
+  ctx.textAlign = item.align%3==1?'left':item.align%3==2?'center':'right';
+  if (item.reverse) {
+    const metrics = ctx.measureText(item.text);
+    ctx.fillRect(ctx.textAlign=='left'?0:ctx.textAlign=='center'?-(metrics.width+item.expansion)/2:metrics.width+item.expansion, ctx.textBaseline=='top'?0:ctx.textBaseline=='middle'?-(fontSize*1.3+item.expansion)/2-10:-(fontSize*1.3+item.expansion)-10, metrics.width+item.expansion, fontSize*1.3+item.expansion);
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillStyle = '#000'
+  }
   var lines = item.text.split("\n");
   for (var i = 0; i < lines.length; i++) { if (lines[i]) ctx.fillText(lines[i], 0, i * fontSize * 1.3); }
   ctx.restore();
@@ -5273,6 +5284,13 @@ function parseElibSilk(text){
       var side=lid2===3?'F':lid2===4?'B':lid2===11?'O':'M';
       var path=data.path;
       if(path)items[side].push({type:'FILL',path:path,width:0});
+    } else if(type==='STRING'){
+      var lid2=data.layerId;
+      if(lid2!==3&&lid2!==4)continue;
+      var side=lid2===3?'F':'B';
+      var text=data.text;var align=data.origin=='LEFT_TOP'?1:data.origin=='CENTER_TOP'?2:data.origin=='RIGHT_TOP'?3:ata.origin=='LEFT_MIDDLE'?4:data.origin=='CENTER_MIDDLE'?5:data.origin=='RIGHT_MIDDLE'?6:data.origin=='LEFT_BOTTOM'?7:data.origin=='CENTER_BOTTOM'?8:data.origin=='RIGHT_BOTTOM'?9:0;
+      var x=data.x,y=data.y,fontFamily=data.fontFamily,fontSize=data.fontSize,width=data.strokeWidth,rotation=data.angle,reverse=data.reverse,expansion=data.expansion,mirror=data.mirror,bold=data.bold,italic=data.italic;
+      if(text)items[side].push({type:'STRING',text,x,y,fontFamily,fontSize,bold,italic,align,width,rotation,reverse,expansion,mirror});
     }
   }
   return items;
@@ -5376,9 +5394,16 @@ for(var ci=0;ci<comp.length;ci++){
     if(clayer==='F')pcbSide=fpSide;
     else pcbSide=fpSide==='F'?'B':fpSide==='B'?'F':fpSide;// mirror for back-side components
     (silkItems[fpSide]||[]).forEach(function(item){
+      if (item.type=='STRING'){
+        var tpt=fpToGlobal(item.x,item.y,cx2,cy2,rot2,(clayer=='B'&&(pcbSide=='B'||pcbSide=='F'))?'B':'F');
+        silk[pcbSide].push({text:item.text,x:tpt[0],y:tpt[1],width:item.width||0,fontFamily:item.fontFamily||'sans-serif',fontSize:item.fontSize||10,bold:item.bold||0,italic:item.italic||0,
+          align:item.align,rotation:item.rotation||0,reverse:item.reverse||false,expansion:item.expansion||0,mirror:item.mirror||false});
+        fpSilkCount++;
+        return
+      }
       var svg=fpCSilkToSvg(item,cx2,cy2,rot2,(clayer=='B'&&(pcbSide=='B'||pcbSide=='F'))?'B':'F');
       if(svg){
-        silk[pcbSide].push({type:'polyline',svgpath:svg,width:item.width||1,primitiveId:fpId});
+        silk[pcbSide].push({type:((pcbSide=='B'||pcbSide=='F')&&item.type=='FILL')?'polygon':'polyline',start:[0,0],end:[0,0],svgpath:svg,thickness:item.width||0,width:item.width||0,primitiveId:fpId});
         fpSilkCount++;
       }
     });
@@ -5454,7 +5479,8 @@ function cvtPad(pad){
     if(cpData){const svg=cp2s(cpData,function(v){return v;});if(svg)r.svgpath=svg;}
   }
   if(pn==='1')r.pin1=1;if(ds){r.drillsize=ds;r.drillshape=dsh;}
-  return r;}
+  return r;
+}
 
 // === FOOTPRINTS (Y as-is, NO flip) ===
 console.log('[iBOM Export] 转换器件...');
@@ -5473,17 +5499,16 @@ for(const c of comp){
   var val=g(c,'name')||'';
   // Resolve template variables like ={Value}
   if(val.match(/^=\{.*\}$/)){var fld=val.replace(/^=\{/,'').replace(/\}$/,'');var op2=g(c,'otherProperty')||c.otherProperty||{};val=op2[fld]||'';}
-  var fontSize=Math.max(30,Math.min(50,(lx2-lx1)*0.3));
-  // Offset above bbox top in local coords, then rotate to global
-  var localOffY=ly1-fontSize*1.2;// above top edge
-  var rotRad2=rot*Math.PI/180;
-  var refGx=cx+localOffY*Math.sin(rotRad2);
-  var refGy=cy-localOffY*Math.cos(rotRad2);
-  var valGx=cx+(localOffY-fontSize*1.3)*Math.sin(rotRad2);
-  var valGy=cy-(localOffY-fontSize*1.3)*Math.cos(rotRad2);
-  if(ref)fpDrawings.push({layer:layer,drawing:{ref:1,text:ref,x:refGx,y:refGy,fontSize:fontSize,rotation:rot}});
-  if(val)fpDrawings.push({layer:layer,drawing:{val:1,text:val,x:valGx,y:valGy,fontSize:fontSize*0.8,rotation:rot}});
-  footprints.push({ref,center:[cx,cy],bbox:{pos:[cx,cy],angle:rot,relpos:[lx1,ly1],size:[lx2-lx1,ly2-ly1]},pads:fp,drawings:fpDrawings,layer});}
+  var fpId=c.primitiveId||g(c,'primitiveId');
+  var fpAttr={};for(const at of attrs){fpPId=at.parentPrimitiveId||g(at,"parentPrimitiveId");if(fpPId!=fpId)continue;if(!(at.valueVisible||g(at,"valueVisible")))continue;fpAttr[at.key||g(at,"key")]=at;};
+  var fpAttrRef=fpAttr["Designator"];
+  var fpAttrVal=fpAttr["Name"];
+  // Switch val/Name/Value;
+  if (!val || !fpAttrVal){val=op2['Value']||op2['value']||op2['值']||op2['数值'];fpAttrVal=fpAttr['Value']||fpAttr['value']||fpAttr['值']||fpAttr['数值']}
+  if(ref && fpAttrRef)fpDrawings.push({layer:layer,drawing:{ref:1,text:ref,x:g(fpAttrRef,'x')||0,y:neg(g(fpAttrRef,'y')||0),width:gW(fpAttrRef),fontFamily:g(fpAttrRef,'fontFamily')||'sans-serif',fontSize:g(fpAttrRef,'fontSize')||10,rotation:g(fpAttrRef,'rotation')||0,reverse:g(fpAttrRef,'reverse')||false,expansion:g(fpAttrRef,'expansion')||0,mirror:g(fpAttrRef,'mirror')||false}});
+  if(val && fpAttrVal)fpDrawings.push({layer:layer,drawing:{val:1,text:val,x:g(fpAttrVal,'x')||0,y:neg(g(fpAttrVal,'y')||0),width:gW(fpAttrVal),fontFamily:g(fpAttrVal,'fontFamily')||'sans-serif',fontSize:g(fpAttrVal,'fontSize')||10,rotation:g(fpAttrVal,'rotation')||0,reverse:g(fpAttrVal,'reverse')||false,expansion:g(fpAttrVal,'expansion')||0,mirror:g(fpAttrVal,'mirror')||false}});
+  footprints.push({ref,center:[cx,cy],bbox:{pos:[cx,cy],angle:rot,relpos:[lx1,ly1],size:[lx2-lx1,ly2-ly1]},pads:fp,drawings:fpDrawings,layer});
+}
 
 // === TRACKS (ALL Y negated) ===
 console.log('[iBOM Export] 转换走线...');
@@ -5494,14 +5519,16 @@ function epKey(x,y){return Math.round(x*10)+'_'+Math.round(y*10);}
 for(const l of lines){const ls=mC(gL(l));if(!ls.length)continue;var lw=gW(l),net=gN(l);
   var k1=epKey(g(l,'startX'),g(l,'startY')),k2=epKey(g(l,'endX'),g(l,'endY'));
   if(lw>0){if(!epWidths[k1]||lw>epWidths[k1])epWidths[k1]=lw;if(!epWidths[k2]||lw>epWidths[k2])epWidths[k2]=lw;}
-  const t={type:'polyline',svgpath:`M ${g(l,'startX')},${neg(g(l,'startY'))} L ${g(l,'endX')},${neg(g(l,'endY'))}`,width:lw,net};for(const s of ls)tracks[s].push(t);}
+  const t={type:'polyline',svgpath:`M ${g(l,'startX')},${neg(g(l,'startY'))} L ${g(l,'endX')},${neg(g(l,'endY'))}`,width:lw,net};for(const s of ls)tracks[s].push(t);
+}
 for(const a of arcs){const ls=mC(gL(a));if(!ls.length)continue;const sx=g(a,'startX'),sy=neg(g(a,'startY')),ex=g(a,'endX'),ey=neg(g(a,'endY')),ar=g(a,'arcAngle')*Math.PI/180;
   var aw=gW(a);
   // Fix arc width: use adjacent line width if arc width is smaller
   var ak1=epKey(g(a,'startX'),g(a,'startY')),ak2=epKey(g(a,'endX'),g(a,'endY'));
   var adjW=Math.max(epWidths[ak1]||0,epWidths[ak2]||0);
   if(adjW>aw)aw=adjW;
-  const t={type:'polyline',svgpath:`M ${sx},${sy} ${arcC(sx,sy,ex,ey,ar)}`,width:aw,net:gN(a)};for(const s of ls)tracks[s].push(t);}
+  const t={type:'polyline',svgpath:`M ${sx},${sy} ${arcC(sx,sy,ex,ey,ar)}`,width:aw,net:gN(a)};for(const s of ls)tracks[s].push(t);
+}
 for(const pl of polys){const ls=mC(gL(pl));if(!ls.length)continue;const svg=p2s(gP(pl),neg);if(!svg)continue;for(const s of ls)tracks[s].push({type:'polyline',svgpath:svg,width:gW(pl),net:gN(pl)});}
 for(const f of fills){const ls=mC(gL(f));if(!ls.length)continue;const svg=cp2s(g(f,'complexPolygon'),neg);if(!svg)continue;for(const s of ls)tracks[s].push({type:'polyline',svgpath:svg,width:0,net:gN(f)});}
 for(const v of vias){const vx=g(v,'x')||0,vy=neg(g(v,'y')||0);const vi={start:[vx,vy],end:[vx,vy],width:g(v,'diameter')||0,net:gN(v)};tracks.F.push(vi);tracks.B.push(vi);}
@@ -5556,40 +5583,11 @@ for(const pd of poureds){const pid=pd.pourPrimitiveId||g(pd,'pourPrimitiveId');c
   }
 }}
 
-// Build set of footprint names and designators to filter from silkscreen
-const silkFilterSet=new Set();
-for(const c of comp){
-  const nm=g(c,'name')||'';if(nm)silkFilterSet.add(nm);
-  const op=g(c,'otherProperty')||c.otherProperty||{};
-  const fpn=op['Footprint']||op['footprint']||'';if(fpn)silkFilterSet.add(fpn);
-  // Also collect part numbers / manufacturer IDs to filter
-  const mfr=g(c,'manufacturerId')||'';if(mfr)silkFilterSet.add(mfr);
-  const sup=g(c,'supplierId')||'';if(sup)silkFilterSet.add(sup);
-  // Collect all otherProperty values as potential part info
-  for(const k in op){if(op[k]&&typeof op[k]==='string')silkFilterSet.add(op[k]);}
-}
-const silkHexRe=/^[0-9a-f]{24,}$/i;
-const silkDimRe=/_L\d/;
-// Part number pattern: 6+ chars with mixed letters+digits, often with hyphens
-const silkPartRe=/^[A-Z0-9][A-Z0-9._-]{5,}$/i;
-function silkShouldFilter(text,x,y,desSet){
-  if(silkFilterSet.has(text))return true;
-  if(x===0&&y===0)return true;
-  if(x<0||y<0)return true;
-  if(silkHexRe.test(text))return true;
-  if(silkDimRe.test(text))return true;
-  // Skip if it's a designator
-  if(desSet&&desSet.has(text))return false;
-  // Filter part numbers: 6+ chars, has both letters and digits, not a common signal name
-  if(text.length>=6&&silkPartRe.test(text)&&/\d/.test(text)&&/[A-Za-z]/.test(text))return true;
-  return false;
-}
-for(const l of lines){const s=mS(gL(l));if(!s)continue;silk[s].push({type:'polyline',svgpath:`M ${g(l,'startX')},${neg(g(l,'startY'))} L ${g(l,'endX')},${neg(g(l,'endY'))}`,width:gW(l)});}
-for(const a of arcs){const s=mS(gL(a));if(!s)continue;const sx=g(a,'startX'),sy=neg(g(a,'startY')),ex=g(a,'endX'),ey=neg(g(a,'endY'));silk[s].push({type:'polyline',svgpath:`M ${sx},${sy} ${arcC(sx,sy,ex,ey,g(a,'arcAngle')*Math.PI/180)}`,width:gW(a)});}
-for(const pl of polys){const s=mS(gL(pl));if(!s)continue;const svg=p2s(gP(pl),neg);if(svg)silk[s].push({type:'polyline',svgpath:svg,width:gW(pl)});}
-for(const f of fills){const s=mS(gL(f));if(!s)continue;const svg=cp2s(g(f,'complexPolygon'),neg);if(svg)silk[s].push({type:'polyline',svgpath:svg,width:0});}
-const silkDesSet=new Set();for(const c of comp){const des=g(c,'designator')||'';if(des)silkDesSet.add(des);}
-for(const st of strs){const s=mS(gL(st));if(!s)continue;const tx=g(st,'x')||0,ty=g(st,'y')||0,text=(g(st,'text')||'').trim();if(!text||silkShouldFilter(text,tx,ty,silkDesSet))continue;silk[s].push({text,x:tx,y:neg(ty),fontSize:g(st,'fontSize')||10,rotation:g(st,'rotation')||0});}
+for(const l of lines){const s=mS(gL(l));if(!s)continue;silk[s].push({type:'polyline',start:[0,0],end:[0,0],svgpath:`M ${g(l,'startX')},${neg(g(l,'startY'))} L ${g(l,'endX')},${neg(g(l,'endY'))}`,thickness:gW(l),width:gW(l)});}
+for(const a of arcs){const s=mS(gL(a));if(!s)continue;const sx=g(a,'startX'),sy=neg(g(a,'startY')),ex=g(a,'endX'),ey=neg(g(a,'endY'));silk[s].push({type:'polyline',start:[0,0],end:[0,0],svgpath:`M ${sx},${sy} ${arcC(sx,sy,ex,ey,g(a,'arcAngle')*Math.PI/180)}`,thickness:gW(a),width:gW(a)});}
+for(const pl of polys){const s=mS(gL(pl));if(!s)continue;const svg=p2s(gP(pl),neg);if(svg)silk[s].push({type:'polyline',start:[0,0],end:[0,0],svgpath:svg,thickness:gW(pl),width:gW(pl)});}
+for(const f of fills){const s=mS(gL(f));if(!s)continue;const svg=cp2s(g(f,'complexPolygon'),neg);if(svg)silk[s].push({type:'polygon',start:[0,0],end:[0,0],svgpath:svg});}
+for(const st of strs){const s=mS(gL(st));if(!s)continue;const tx=g(st,'x')||0,ty=g(st,'y')||0,text=(g(st,'text')||'').trim();if(!text)continue;silk[s].push({text,x:tx,y:neg(ty),width:gW(st),fontFamily:g(st,'fontFamily')||'sans-serif',fontSize:g(st,'fontSize')||10,bold:g(st,'bold')||false,italic:g(st,'italic')||false,align:g(st,'alignMode')||0,rotation:g(st,'rotation')||0,reverse:g(st,'reverse')||false,expansion:g(st,'expansion')||0,mirror:g(st,'mirror')||false});}
 
 // === BOM ===
 const skipped=[],hasCC={M:false,S:false},active=[];
@@ -5632,86 +5630,40 @@ function grp(items){const m=new Map();for(const it of items){const key=it.name+'
 function grpf(items){const m=new Map();for(const it of items){const key=it.name+'|'+it.fpName+'|'+it.value+'|'+it.manufacturerId+'|'+it.supplierId;if(!m.has(key))m.set(key,[]);m.get(key).push(it);}const rows={};for(const[key,its]of m){for(const it of its){rows[refIdx[it.designator]!==undefined?refIdx[it.designator]:it.designator]=[(it.value||it.name)+(it.valtage?'/'+it.valtage:''),it.fpName,it.manufacturerId,it.supplierId]}}; return rows;}
 const bom={both:grp(active),fields:grpf(active),F:grp(active.filter(i=>i.layer==='F')),B:grp(active.filter(i=>i.layer==='B')),skipped,customColumns:cc};
 
-
-  let title='EasyEDA Pro Project',company='Unknown';
-  try{title=(await eda.dmt_Board.getCurrentBoardInfo()).name||title;}catch(e){}
-  try{company=(await eda.dmt_SelectControl.getCurrentDocumentInfo()).company||company;}catch(e){}
-  const now=new Date(),date=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
-  return {ibom_version:'v2.10.0-1647296\n',edges_bbox,edges,drawings:{silkscreen:silk,fabrication:{F:[],B:[]}},footprints,metadata:{title,revision:'0',company,date},tracks,zones,pads:[],nets,bom};
-}
+let title='EasyEDA Pro Project',company='Unknown';
+try{title=(await eda.dmt_Board.getCurrentBoardInfo()).name||title;}catch(e){}
+try{company=(await eda.dmt_SelectControl.getCurrentDocumentInfo()).company||company;}catch(e){}
+const now=new Date(),date=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
+return {ibom_version:'v2.10.0-1647296\n',edges_bbox,edges,drawings:{silkscreen:{F:silk['F'],B:silk['B']},fabrication:{F:[],B:[]}},footprints,metadata:{title,revision:'0',company,date},tracks,zones,pads:[],nets,bom};}
 
 // === Data fixer (from standalone viewer) ===
 function fixPcbData(data) {
-    // 3. Fix tracks: add type field for svgpath-only tracks so drawTracks renders them
-    ['F','B'].forEach(function(layer) {
-      (data.tracks[layer] || []).forEach(function(t) {
-        if (!t.type && t.svgpath) {
-          // Tracks with svgpath but no type — treat as polyline so drawTracks uses drawPolylineShape
-          t.type = 'polyline';
-        }
+  // 4. Fix footprint bboxes: compute from pad positions in LOCAL (un-rotated) coordinates
+  (data.footprints || []).forEach(function(f) {
+    return;
+    if (f.bbox.size[0] === 0 && f.bbox.size[1] === 0 && f.pads && f.pads.length > 0) {
+      var cx = f.center[0], cy = f.center[1];
+      var angle = f.bbox.angle || 0;
+      var rotRad = -angle * Math.PI / 180;
+      var cosR = Math.cos(rotRad), sinR = Math.sin(rotRad);
+      var pminx = Infinity, pminy = Infinity, pmaxx = -Infinity, pmaxy = -Infinity;
+      f.pads.forEach(function(p) {
+        var dx = p.pos[0] - cx, dy = p.pos[1] - cy;
+        var lx = dx * cosR - dy * sinR;
+        var ly = dx * sinR + dy * cosR;
+        var hw = p.size[0] / 2, hh = p.size[1] / 2;
+        if (lx - hw < pminx) pminx = lx - hw;
+        if (ly - hh < pminy) pminy = ly - hh;
+        if (lx + hw > pmaxx) pmaxx = lx + hw;
+        if (ly + hh > pmaxy) pmaxy = ly + hh;
       });
-    });
-
-    // 3. Fix silkscreen drawings: Pro exports {text,x,y,fontSize,rotation} without type
-    //    and svgpath items without type. Fix svgpath items; text items handled by patched drawBgLayer.
-    //    Filter out (0,0) text items — these are component-internal texts (package name, value)
-    //    that Pro exports with zero coordinates; they don't belong in global silkscreen.
-    ['F','B'].forEach(function(layer) {
-      var items = data.drawings && data.drawings.silkscreen && data.drawings.silkscreen[layer];
-      if (!items) return;
-      var filtered = [];
-      for (var i = 0; i < items.length; i++) {
-        var d = items[i];
-        if (d.text !== undefined && !d.type && d.x === 0 && d.y === 0) {
-          continue; // skip component-internal text at origin
-        }
-        if (!d.type && d.svgpath && d.text === undefined) {
-          d.type = 'polyline';
-          if (!d.width) d.width = 0;
-        }
-        filtered.push(d);
-      }
-      data.drawings.silkscreen[layer] = filtered;
-    });
-
-    // 4. Fix footprint bboxes: compute from pad positions in LOCAL (un-rotated) coordinates
-    (data.footprints || []).forEach(function(f) {
-      if (f.bbox.size[0] === 0 && f.bbox.size[1] === 0 && f.pads && f.pads.length > 0) {
-        var cx = f.center[0], cy = f.center[1];
-        var angle = f.bbox.angle || 0;
-        var rotRad = -angle * Math.PI / 180;
-        var cosR = Math.cos(rotRad), sinR = Math.sin(rotRad);
-        var pminx = Infinity, pminy = Infinity, pmaxx = -Infinity, pmaxy = -Infinity;
-        f.pads.forEach(function(p) {
-          var dx = p.pos[0] - cx, dy = p.pos[1] - cy;
-          var lx = dx * cosR - dy * sinR;
-          var ly = dx * sinR + dy * cosR;
-          var hw = p.size[0] / 2, hh = p.size[1] / 2;
-          if (lx - hw < pminx) pminx = lx - hw;
-          if (ly - hh < pminy) pminy = ly - hh;
-          if (lx + hw > pmaxx) pmaxx = lx + hw;
-          if (ly + hh > pmaxy) pmaxy = ly + hh;
-        });
-        f.bbox.relpos = [pminx, pminy];
-        f.bbox.size = [pmaxx - pminx, pmaxy - pminy];
-      }
-    });
-
-    // 5. Fix pad holeCenterPoint: Pro data doesn't have it, add from pos
-    function fixPadHoles(pads) {
-      (pads || []).forEach(function(p) {
-        if (p.type === 'th' && !p.holeCenterPoint) {
-          p.holeCenterPoint = { x: p.pos[0], y: p.pos[1] };
-        }
-      });
+      f.bbox.relpos = [pminx, pminy];
+      f.bbox.size = [pmaxx - pminx, pmaxy - pminy];
     }
-    fixPadHoles(data.pads);
-    (data.footprints || []).forEach(function(f) { fixPadHoles(f.pads); });
+  });
 
-    console.log('[iBOM Export] Fixed:', data.footprints.length, 'footprints,',
-      data.tracks.F.length, 'F tracks,', data.tracks.B.length, 'B tracks,',
-      (data.bom ? data.bom.both.length : 0), 'BOM groups');
-  }
+  console.log(`[iBOM Export] 统计信息:'${data.bom?data.bom.both.length:0}BOM Group ${data.footprints.length}Footprints`);
+}
 
 // === Auto-init ===
 document.addEventListener('DOMContentLoaded', async function() {
