@@ -2739,8 +2739,8 @@ function drawProText(ctx, item, color) {
   if (item.rotation) ctx.rotate(-item.rotation * Math.PI / 180);
   if (item.mirror) ctx.scale(-1, 1);
   var fontSize = item.fontSize || 10;
-  if (item.fontFamily=='default') item.fontFamily = 'sans-serif';
-  ctx.font = (item.bold?"bold ":"") + (item.italic?"italic ":"") + fontSize + "px " + item.fontFamily || "sans-serif";
+  if (item.fontFamily=='default') item.fontFamily = 'Arial';
+  ctx.font = (item.bold?"bold ":"") + (item.italic?"italic ":"") + fontSize + "px " + item.fontFamily || "Arial";
   ctx.textBaseline = item.align<=3?'top':item.align<=6?'middle':'bottom';
   ctx.textAlign = item.align%3==1?'left':item.align%3==2?'center':'right';
   if (item.reverse) {
@@ -5156,7 +5156,7 @@ async function collectPcbData() {
 function g(o,p){const m='getState_'+p.charAt(0).toUpperCase()+p.slice(1);if(typeof o[m]==='function')return o[m]();if(p in o)return o[p];const l=p.charAt(0).toLowerCase()+p.slice(1);return l in o?o[l]:undefined;}
 function gL(o){return g(o,'layer');}
 function gN(o){return g(o,'net')||'';}
-function gW(o){return g(o,'lineWidth')||0;}
+function gW(o){return g(o,'lineWidth')||1;}
 function gP(o){var p=g(o,'polygon');if(!p)return[];if(!Array.isArray(p)&&typeof p==='object'&&Array.isArray(p.polygon))return p.polygon;return Array.isArray(p)?p:[];}
 const CM={1:['F'],2:['B'],12:['F','B']},SM={3:'F',4:'B'};
 function mC(id){return CM[id]||[];}
@@ -5186,7 +5186,7 @@ function rrP(x,y,w,h,rot,rx,ry){
 }
 
 // Polygon→SVG. fy: function to transform Y (identity or negate)
-function p2s(d,fy,gx,gy){
+function p2s(d,fr,fy,gx,gy){
   if(!d||d.length===0)return'';
   if(!fy)fy=function(v){return -v;};
   if(!gx)gx=function(lx,ly){return lx};
@@ -5195,23 +5195,25 @@ function p2s(d,fy,gx,gy){
   while(i<d.length){const c=d[i];
     if(typeof c==='string'){const cmd=c.toUpperCase();
       if(cmd==='CIRCLE'&&i+3<d.length){const cx=gx(d[i+1],d[i+2]),cy=gy(d[i+1],d[i+2]),r=d[i+3];i+=4;P.push(`M ${cx+r},${cy} A ${r},${r} 0 1,0 ${cx-r},${cy} A ${r},${r} 0 1,0 ${cx+r},${cy}`);px=cx;py=cy;f=false;}
-      else if(cmd==='R'&&i+6<d.length){const rx=gx(d[i+1],d[i+2]),ry=gy(d[i+1],d[i+2]),rw=d[i+3],rh=d[i+4],rot=d[i+5],round=d[i+6];i+=7;P.push(rrP(rx,ry,rw,rh,rot,round,round));px=rx;py=ry;f=false;}
+      else if(cmd==='R'&&i+6<d.length){const rx=gx(d[i+1],d[i+2]),ry=gy(d[i+1],d[i+2]),rw=d[i+3],rh=d[i+4],rot=d[i+5],round=d[i+6];i+=7;P.push(rrP(rx,ry,rw,rh,fr+rot,round,round));px=rx;py=ry;f=false;}
       else if(cmd==='ARC'&&i+3<d.length){const ad=d[i+1],ax=gx(d[i+2],d[i+3]),ay=gy(d[i+2],d[i+3]),ar=ad*Math.PI/180;i+=4;if(!f)P.push(arcC(px,py,ax,ay,ar));px=ax;py=ay;}
+      else if(cmd==='CARC'&&i+3<d.length){const ad=d[i+1],ax=gx(d[i+2],d[i+3]),ay=gy(d[i+2],d[i+3]),ar=ad*Math.PI/180;i+=4;if(!f)P.push(arcC(px,py,ax,ay,ar));px=ax;py=ay;}
       else if(cmd==='L'&&i+2<d.length){const lx=gx(d[i+1],d[i+2]),ly=gy(d[i+1],d[i+2]);i+=3;P.push(f?`M ${lx},${ly}`:`L ${lx},${ly}`);px=lx;py=ly;f=false;}
+      else if(cmd==='C'&&i+6<d.length){const cx2=gx(d[i+1],d[i+2]),cy2=gy(d[i+1],d[i+2]),cx3=gx(d[i+3],d[i+4]),cy3=gy(d[i+3],d[i+4]),cx4=gx(d[i+5],d[i+6]),cy4=gy(d[i+5],d[i+6]);i+=7;P.push(f?`M ${cx2},${cy2}`:`L ${cx2},${ly2} ${cx3},${ly3} ${cx4},${ly4}`);px=cx4;py=cy4;f=false}
       else{i++;}}
     else if(typeof c==='number'&&i+1<d.length){const nx=gx(c,d[i+1]),ny=gy(c,d[i+1]);i+=2;P.push(f?`M ${nx},${ny}`:`L ${nx},${ny}`);px=nx;py=ny;f=false;}
     else{i++;}}
   return P.join(' ');
 }
-function cp2s(cp,fy,gx,gy){
+function cp2s(cp,fr,fy,gx,gy){
   if(!cp)return'';
   if(!Array.isArray(cp)&&typeof cp==='object'){
     if(Array.isArray(cp.complexPolygon))cp=cp.complexPolygon;
     else if(Array.isArray(cp.polygon))cp=cp.polygon;
     else{try{cp=Array.from(cp);}catch(e){return'';}}}
   if(!Array.isArray(cp)||cp.length===0)return'';
-  if(Array.isArray(cp)&&!Array.isArray(cp[0])) return p2s(cp,fy,gx,gy); 
-  return cp.map(s=>{return p2s(s,fy,gx,gy);}).filter(Boolean).join(' ');
+  if(Array.isArray(cp)&&!Array.isArray(cp[0])) return p2s(cp,fr,fy,gx,gy); 
+  return cp.map(s=>{return p2s(s,fr,fy,gx,gy);}).filter(Boolean).join(' ');
 }
 function neg(v){return -v;}  // Y-negate: Pro Y-up -> iBOM Y-down
 function nid(v){return v;}    // identity (unused, kept for reference)
@@ -5274,7 +5276,7 @@ function parseElibSilk(text){
       var lid2=data.layerId;
       if(lid2!==3&&lid2!==4&&lid2!==11&&lid2!==13&&lid2!==48&&lid2!==49&&lid2!==50&&lid2!==51)continue;
       var side=lid2===3?'F':lid2===4?'B':lid2===11?'O':'Y';
-      var path=data.path;var w=data.width||0;
+      var path=data.path;var w=data.width||1;
       if(path)items[side].push({type:'POLY',path:path,width:w});
     } else if(type==='FILL'){
       var lid2=data.layerId;
@@ -5286,7 +5288,7 @@ function parseElibSilk(text){
       var lid2=data.layerId;
       if(lid2!==3&&lid2!==4&&lid2!==13&&lid2!==48&&lid2!==49&&lid2!==50&&lid2!==51)continue;
       var side=lid2===3?'F':lid2===4?'B':'Y';
-      var text=data.text;var align=data.origin=='LEFT_TOP'?1:data.origin=='CENTER_TOP'?2:data.origin=='RIGHT_TOP'?3:ata.origin=='LEFT_MIDDLE'?4:data.origin=='CENTER_MIDDLE'?5:data.origin=='RIGHT_MIDDLE'?6:data.origin=='LEFT_BOTTOM'?7:data.origin=='CENTER_BOTTOM'?8:data.origin=='RIGHT_BOTTOM'?9:0;
+      var text=data.text;var align=data.origin==='LEFT_TOP'?1:data.origin==='CENTER_TOP'?2:data.origin==='RIGHT_TOP'?3:data.origin==='LEFT_MIDDLE'?4:data.origin==='CENTER_MIDDLE'?5:data.origin==='RIGHT_MIDDLE'?6:data.origin==='LEFT_BOTTOM'?7:data.origin==='CENTER_BOTTOM'?8:data.origin==='RIGHT_BOTTOM'?9:0;
       var x=data.x,y=data.y,fontFamily=data.fontFamily,fontSize=data.fontSize,width=data.strokeWidth,rotation=data.angle||0,reverse=data.reverse,expansion=data.expansion,mirror=data.mirror?true:false,bold=data.bold?true:false,italic=data.italic?true:false;
       if(text)items[side].push({type:'STRING',text,x,y,fontFamily,fontSize,bold,italic,align,width,rotation,reverse,expansion,mirror});
     }
@@ -5341,23 +5343,23 @@ for(var ci=0;ci<comp.length;ci++){
   if(!silkItems)continue;
   var cx2=g(c,'x')||0,cy2=neg(g(c,'y')||0);
   var rot2=g(c,'rotation')||0;
-  var lid2=gL(c),clayer=lid2===1?'F':'B',rot2=lid2===1?rot2:-rot2;
+  var lid2=gL(c),clayer=lid2===1?'F':'B',rot2=lid2===1?rot2:rot2+180;
   // Determine silk layer mapping: if component is on back, top silk of footprint maps to back silk of PCB
   ['F','B','O','M','Y'].forEach(function(fpSide){
     var pcbSide;
     if(clayer==='F')pcbSide=fpSide;
     else pcbSide=fpSide==='F'?'B':fpSide==='B'?'F':fpSide;// mirror for back-side components
     (silkItems[fpSide]||[]).forEach(function(item){
-      if (item.type=='STRING'){
+      if (item.type==='STRING'){
         var tpt=fpToGlobal(item.x,item.y,cx2,cy2,rot2,clayer);
-        silk[pcbSide=='Y'?clayer:pcbSide].push({text:item.text,x:tpt[0],y:tpt[1],width:item.width||0,fontFamily:item.fontFamily||'sans-serif',fontSize:item.fontSize||10,bold:item.bold,italic:item.italic,
-          align:item.align,rotation:item.rotation+rot2,reverse:item.reverse||false,expansion:item.expansion||0,mirror:clayer=='B'?!item.mirror:item.mirror});
+        silk[pcbSide==='Y'?clayer:pcbSide].push({text:item.text,x:tpt[0],y:tpt[1],width:item.width||1,fontFamily:item.fontFamily||'Arial',fontSize:item.fontSize||10,bold:item.bold,italic:item.italic,
+          align:item.align,rotation:clayer==='B'?item.rotation+rot2-180:item.rotation+rot2,reverse:item.reverse||false,expansion:item.expansion||0,mirror:clayer==='B'?!item.mirror:item.mirror});
         fpSilkCount++;
         return
       }
-      var svg=cp2s(item.path,neg,function(lx,ly){return fpToGlobal(lx,ly,cx2,cy2,rot2,clayer)[0];},function(lx,ly){return fpToGlobal(lx,ly,cx2,cy2,rot2,clayer)[1];});
+      var svg=cp2s(item.path,rot2,neg,function(lx,ly){return fpToGlobal(lx,ly,cx2,cy2,rot2,clayer)[0];},function(lx,ly){return fpToGlobal(lx,ly,cx2,cy2,rot2,clayer)[1];});
       if(svg){
-        silk[pcbSide=='Y'?clayer:pcbSide].push({type:item.type=='FILL'?'polygon':'polyline',start:[0,0],end:[0,0],svgpath:svg,thickness:item.width||0,width:item.width||0,primitiveId:fpId});
+        silk[pcbSide==='Y'?clayer:pcbSide].push({type:item.type==='FILL'?'polygon':'polyline',start:[0,0],end:[0,0],svgpath:svg,thickness:item.width||1,width:item.width||1,primitiveId:fpId});
         fpSilkCount++;
       }
     });
@@ -5370,8 +5372,8 @@ const edges=[];
 const eids=[];
 for(const l of lines){if(!isOL(gL(l)))continue;const sx=g(l,'startX'),sy=neg(g(l,'startY')),ex=g(l,'endX'),ey=neg(g(l,'endY'));eids.push(g(l,'primitiveId'));edges.push({type:'polyline',start:[0,0],end:[0,0],svgpath:`M ${sx},${sy} L ${ex},${ey}`,thickness:gW(l),width:gW(l)});}
 for(const a of arcs){if(!isOL(gL(a)))continue;const sx=g(a,'startX'),sy=neg(g(a,'startY')),ex=g(a,'endX'),ey=neg(g(a,'endY')),ar=g(a,'arcAngle')*Math.PI/180;eids.push(g(a,'primitiveId'));edges.push({type:'polyline',start:[0,0],end:[0,0],svgpath:`M ${sx},${sy} ${arcC(sx,sy,ex,ey,ar)}`,thickness:gW(a),width:gW(a)});}
-for(const pl of polys){if(!isOL(gL(pl)))continue;const svg=p2s(gP(pl),neg);if(svg){eids.push(g(pl,'primitiveId'));edges.push({type:'polyline',start:[0,0],end:[0,0],svgpath:svg,thickness:gW(pl),width:gW(pl)});}}
-for(const fl of fills){if(!isML(gL(fl)))continue;const svg=cp2s(g(fl,'complexPolygon'),neg);if(svg){eids.push(g(fl,'primitiveId'));edges.push({type:'polyline',start:[0,0],end:[0,0],svgpath:svg,thickness:gW(fl),width:gW(fl)});}}
+for(const pl of polys){if(!isOL(gL(pl)))continue;const svg=p2s(gP(pl),0,neg);if(svg){eids.push(g(pl,'primitiveId'));edges.push({type:'polyline',start:[0,0],end:[0,0],svgpath:svg,thickness:gW(pl),width:gW(pl)});}}
+for(const fl of fills){if(!isML(gL(fl)))continue;const svg=cp2s(g(fl,'complexPolygon'),0,neg);if(svg){eids.push(g(fl,'primitiveId'));edges.push({type:'polyline',start:[0,0],end:[0,0],svgpath:svg,thickness:gW(fl),width:gW(fl)});}}
 ['O','M'].forEach(function(fs){silk[fs].forEach(function(fl){eids.push(fl.primitiveId);edges.push({type:'polyline',start:[0,0],end:[0,0],svgpath:fl.svgpath,thickness:fl.width,width:fl.width});})})
 let edges_bbox={minx:-1000,miny:-1000,maxx:1000,maxy:1000};
 if(eids.length>0){const MG=5,eb=await eda.pcb_Primitive.getPrimitivesBBox(eids);edges_bbox={minx:eb.minX-MG,miny:Math.min(-eb.minY,-eb.maxY)-MG,maxx:eb.maxX+MG,maxy:Math.max(-eb.minY,-eb.maxY)+MG};}
@@ -5388,14 +5390,22 @@ function rotateBBox(bbox, cx, cy, angle) {
   return {minX:Math.min(r[0].x,r[1].x,r[2].x,r[3].x),maxX:Math.max(r[0].x,r[1].x,r[2].x,r[3].x),minY:Math.min(r[0].y,r[1].y,r[2].y,r[3].y),maxY:Math.max(r[0].y,r[1].y,r[2].y,r[3].y)}
 }
 // === PADS ===
+const padMap={};
 function cvtPad(pad){
+  const fpId=g(pad,'primitiveId')||'';if(padMap[fpId])return;
   const hole=g(pad,'hole');let ds,dsh;if(hole){var hw=hole[1]||0,hh=hole[2]||hole[1]||0;if(hole[0]==='ROUND'||hw===hh){dsh='round';}else{dsh='oblong';}ds=[hw,hh];}
   const lid=gL(pad),layers=mC(lid),type=lid===12?'th':'smd';
   const px=g(pad,'x')||0, py=neg(g(pad,'y')||0);
-  const angle=g(pad,"rotation")||0, pn=g(pad,'padNumber')||'';
+  const angle=g(pad,"rotation")||0,holdR=g(pad,'holeRotation')||0,pn=g(pad,'padNumber')||'';
   const ps=g(pad,'pad')||['ELLIPSE',1,1];
   const shapeType=ps[0];
   let shape,size,radius=0,rotate=angle,polygons,svgpath;
+  if(pad.primitiveType==='Pad'){rotate=rotate*180/Math.PI;}
+  if(pad.primitiveType==='ComponentPad'){if(ds)ds=[ds[0]*10,ds[1]*10];}
+  //holdR rotated
+  while (holdR<0) holdR += Math.PI*2;
+  while (holdR>Math.PI*2) holdR -= Math.PI*2;
+  if(ds && dsh==='oblong'){if(holdR<0.7||(holdR>Math.PI/2+0.7&&holdR<Math.PI+0.7)||holdR>Math.PI*1.5+0.7)ds=[ds[1],ds[0]];}
   if(shapeType==='ELLIPSE'){
     // Circle/Ellipse: [type, width, height]
     const w=ps[1]||0,h=ps[2]||0;
@@ -5420,17 +5430,18 @@ function cvtPad(pad){
   } else if(shapeType==='POLYLINE_COMPLEX_POLYGON'||shapeType==='POLYGON'){
     // Complex polygon: [type, complexPolygon]
     shape='custom';size=[0,0];
-    const cpData=ps[1];if(cpData)svgpath=cp2s(cpData,neg,function(lx,ly){return lx-px;},function(lx,ly){return neg(ly+py);});
+    const cpData=ps[1];if(cpData)svgpath=cp2s(cpData,0,neg,function(lx,ly){return lx-px;},function(lx,ly){return neg(ly+py);});
     rotate=0;
   } else {
     // Fallback: treat as oval
     shape='oval';size=[ps[1]||0,ps[2]||0];
   }
-  const r={layers,pos:[px,py],size,angle:-rotate,shape,type,net:gN(pad),holeCenterPoint:{x:px,y:py}};
+  const r={layers,pos:[px,py],size,angle:rotate,shape,type,net:gN(pad),holeCenterPoint:{x:px,y:py}};
   if(radius>0)r.radius=radius;
   if(polygons)r.polygons=polygons;
   if(svgpath)r.svgpath=svgpath;
   if(pn==='1')r.pin1=1;if(ds){r.drillsize=ds;r.drillshape=dsh;}
+  padMap[fpId] = r;
   return r;
 }
 
@@ -5440,54 +5451,41 @@ const footprints=[];
 for(const c of comp){
   const ref=g(c,'designator')||'',cx=g(c,'x')||0,cy=neg(g(c,'y')||0); // Y negated
   const rot=g(c,'rotation')||0,lid=gL(c),fpId=g(c,'primitiveId'),layer=lid===1?'F':'B';
-  let fp=[],pins;if(typeof c.getAllPins==='function')pins=await c.getAllPins();else pins=[];fp=(pins||[]).map(p=>cvtPad(p));
+  let fp=[],pins;if(typeof c.getAllPins==='function')pins=await c.getAllPins();else pins=[];fp=(pins||[]).reduce((a,p)=>{const v=cvtPad(p);if(v)a.push(v);return a;},[]);
   // bbox in local (un-rotated) coords
   let bbox={minx:-1000,miny:-1000,maxx:1000,maxy:1000};
   if(fpId){eb=await eda.pcb_Primitive.getPrimitivesBBox([fpId]);eb=rotateBBox(eb,cx,-cy,-rot);bbox={minx:eb.minX,miny:Math.min(-eb.minY,-eb.maxY),maxx:eb.maxX,maxy:Math.max(-eb.minY,-eb.maxY)};}
   // Build ref/val text drawings positioned above the component center
   var fpDrawings=[];
-  for(const st of attrs){fpPId=g(st,"parentPrimitiveId");if(fpPId!=fpId)continue;if(!g(st,"valueVisible"))continue;
-  const key=g(st,"key")||'';if(!key)continue;const val=(key==='Designator'||key==='designator')?1:0,tx=g(st,'x')||0,ty=g(st,'y')||0,mirror=g(st,'mirror')||false,text=(resolveTemplateField(st,'value')||'').trim();if(!text)continue;fpDrawings.push({layer:layer,drawing:{...(!val&&{ref:1}),...(val&&{val:1}),text:text,x:tx,y:neg(ty),width:gW(st),fontFamily:g(st,'fontFamily')||'sans-serif',fontSize:g(st,'fontSize')||10,rotation:g(st,'rotation')||0,reverse:g(st,'reverse')||false,expansion:g(st,'expansion')||0,mirror:layer==='B'?!mirror:mirror}})}
+  for(const st of attrs){fpPId=g(st,"parentPrimitiveId");if(fpPId!==fpId)continue;if(!g(st,"valueVisible"))continue;
+  const key=g(st,"key")||'';if(!key)continue;const val=(key==='Designator'||key==='designator')?1:0,tx=g(st,'x')||0,ty=g(st,'y')||0,mirror=g(st,'mirror')||false,text=(resolveTemplateField(st,'value')||'').trim();if(!text)continue;fpDrawings.push({layer:layer,drawing:{...(val&&{ref:1}),...(!val&&{val:1}),text:text,x:tx,y:neg(ty),width:gW(st),fontFamily:g(st,'fontFamily')||'Arial',fontSize:g(st,'fontSize')||10,rotation:g(st,'rotation')||0,reverse:g(st,'reverse')||false,expansion:g(st,'expansion')||0,mirror:layer==='B'?!mirror:mirror}})}
   footprints.push({ref,center:[cx,cy],bbox:{pos:[cx,cy],angle:rot,relpos:[bbox.minx-cx,bbox.miny-cy],size:[bbox.maxx-bbox.minx,bbox.maxy-bbox.miny]},pads:fp,drawings:fpDrawings,layer});
 }
 
 // === TRACKS (ALL Y negated) ===
 console.log('[iBOM Export] 转换走线...');
 const tracks={F:[],B:[]};
-// Build endpoint→width index for arc width correction
-var epWidths={};
-function epKey(x,y){return Math.round(x*10)+'_'+Math.round(y*10);}
-for(const l of lines){const ls=mC(gL(l));if(!ls.length)continue;var lw=gW(l),net=gN(l);
-  var k1=epKey(g(l,'startX'),g(l,'startY')),k2=epKey(g(l,'endX'),g(l,'endY'));
-  if(lw>0){if(!epWidths[k1]||lw>epWidths[k1])epWidths[k1]=lw;if(!epWidths[k2]||lw>epWidths[k2])epWidths[k2]=lw;}
-  const t={type:'polyline',start:[0,0],end:[0,0],svgpath:`M ${g(l,'startX')},${neg(g(l,'startY'))} L ${g(l,'endX')},${neg(g(l,'endY'))}`,thickness:lw,width:lw,net};for(const s of ls)tracks[s].push(t);
-}
-for(const a of arcs){const ls=mC(gL(a));if(!ls.length)continue;const sx=g(a,'startX'),sy=neg(g(a,'startY')),ex=g(a,'endX'),ey=neg(g(a,'endY')),ar=g(a,'arcAngle')*Math.PI/180;
-  var aw=gW(a);
-  // Fix arc width: use adjacent line width if arc width is smaller
-  var ak1=epKey(g(a,'startX'),g(a,'startY')),ak2=epKey(g(a,'endX'),g(a,'endY'));
-  var adjW=Math.max(epWidths[ak1]||0,epWidths[ak2]||0);
-  if(adjW>aw)aw=adjW;
-  const t={type:'polyline',start:[0,0],end:[0,0],svgpath:`M ${sx},${sy} ${arcC(sx,sy,ex,ey,ar)}`,thickness:aw,width:aw,net:gN(a)};for(const s of ls)tracks[s].push(t);
-}
-for(const pl of polys){const ls=mC(gL(pl));if(!ls.length)continue;const svg=p2s(gP(pl),neg);if(!svg)continue;for(const s of ls)tracks[s].push({type:'polyline',start:[0,0],end:[0,0],svgpath:svg,thickness:gW(pl),width:gW(pl),net:gN(pl)});}
-for(const f of fills){const ls=mC(gL(f));if(!ls.length)continue;const svg=cp2s(g(f,'complexPolygon'),neg);if(!svg)continue;for(const s of ls)tracks[s].push({type:'polygon',start:[0,0],end:[0,0],svgpath:svg,net:gN(f)});}
-for(const v of vias){const vx=g(v,'x')||0,vy=neg(g(v,'y')||0);const vi={start:[vx,vy],end:[vx,vy],drillsize:g(v,'holeDiameter')||0,width:g(v,'diameter')||0,net:gN(v)};tracks.F.push(vi);tracks.B.push(vi);}
+for(const l of lines){const ls=mC(gL(l));if(!ls.length)continue;var lw=gW(l),net=gN(l);const t={type:'polyline',start:[0,0],end:[0,0],svgpath:`M ${g(l,'startX')},${neg(g(l,'startY'))} L ${g(l,'endX')},${neg(g(l,'endY'))}`,thickness:lw,width:lw,net};for(const s of ls)tracks[s].push(t);}
+for(const a of arcs){const ls=mC(gL(a));if(!ls.length)continue;var aw=gW(a),net=gN(a);const sx=g(a,'startX'),sy=neg(g(a,'startY')),ex=g(a,'endX'),ey=neg(g(a,'endY')),ar=g(a,'arcAngle')*Math.PI/180;const t={type:'polyline',start:[0,0],end:[0,0],svgpath:`M ${sx},${sy} ${arcC(sx,sy,ex,ey,ar)}`,thickness:aw,width:aw,net};for(const s of ls)tracks[s].push(t);}
+for(const pl of polys){const ls=mC(gL(pl));if(!ls.length)continue;const svg=p2s(gP(pl),0,neg);if(!svg)continue;for(const s of ls)tracks[s].push({type:'polyline',start:[0,0],end:[0,0],svgpath:svg,thickness:gW(pl),width:gW(pl),net:gN(pl)});}
+for(const f of fills){const ls=mC(gL(f));if(!ls.length)continue;const svg=cp2s(g(f,'complexPolygon'),0,neg);if(!svg)continue;for(const s of ls)tracks[s].push({type:'polygon',start:[0,0],end:[0,0],svgpath:svg,net:gN(f)});}
+for(const st of strs){const ls=mC(gL(st));if(!ls.length)continue;const tx=g(st,'x')||0,ty=g(st,'y')||0,mirror=g(st,'mirror')||false,text=(g(st,'text')||'').trim();if(!text)continue;for(const s of ls)tracks[s].push({text,x:tx,y:neg(ty),width:gW(st),fontFamily:g(st,'fontFamily')||'Arial',fontSize:g(st,'fontSize')||10,bold:g(st,'bold')||false,italic:g(st,'italic')||false,align:g(st,'alignMode')||0,rotation:g(st,'rotation')||0,reverse:g(st,'reverse')||false,expansion:g(st,'expansion')||0,mirror:s==='B'?!mirror:mirror});}
+for(const v of vias){const vx=g(v,'x')||0,vy=neg(g(v,'y')||0);const vi={start:[vx,vy],end:[vx,vy],drillsize:g(v,'holeDiameter')||5,width:g(v,'diameter')||10,net:gN(v)};tracks.F.push(vi);tracks.B.push(vi);}
 
 // === ZONES (ALL Y negated) ===
 const pourMap={};for(const p of pours){const pid=g(p,'primitiveId');if(pid)pourMap[pid]=p;}
 const zones={F:[],B:[]};
 for(const pd of poureds){const pid=g(pd,'pourPrimitiveId');const pour=pourMap[pid];if(!pour)continue;const ls=mC(gL(pour));if(!ls.length)continue;const pf=g(pd,'pourFills');if(!pf||!Array.isArray(pf))continue;const net=gN(pour);for(const fill of pf){
   if(fill.fill===false)continue;
-  var svg=cp2s(fill.path,neg,function(lx,ly){return lx*10;},function(lx,ly){return neg(ly*10);});
+  var svg=cp2s(fill.path,0,neg,function(lx,ly){return lx*10;},function(lx,ly){return neg(ly*10);});
   if (!svg)continue;for(const s of ls)zones[s].push({svgpath:svg,net});
 }}
 
 for(const l of lines){const s=mS(gL(l));if(!s)continue;silk[s].push({type:'polyline',start:[0,0],end:[0,0],svgpath:`M ${g(l,'startX')},${neg(g(l,'startY'))} L ${g(l,'endX')},${neg(g(l,'endY'))}`,thickness:gW(l),width:gW(l)});}
 for(const a of arcs){const s=mS(gL(a));if(!s)continue;const sx=g(a,'startX'),sy=neg(g(a,'startY')),ex=g(a,'endX'),ey=neg(g(a,'endY'));silk[s].push({type:'polyline',start:[0,0],end:[0,0],svgpath:`M ${sx},${sy} ${arcC(sx,sy,ex,ey,g(a,'arcAngle')*Math.PI/180)}`,thickness:gW(a),width:gW(a)});}
-for(const pl of polys){const s=mS(gL(pl));if(!s)continue;const svg=p2s(gP(pl),neg);if(svg)silk[s].push({type:'polyline',start:[0,0],end:[0,0],svgpath:svg,thickness:gW(pl),width:gW(pl)});}
-for(const f of fills){const s=mS(gL(f));if(!s)continue;const svg=cp2s(g(f,'complexPolygon'),neg);if(svg)silk[s].push({type:'polygon',start:[0,0],end:[0,0],svgpath:svg});}
-for(const st of strs){const s=mS(gL(st));if(!s)continue;const tx=g(st,'x')||0,ty=g(st,'y')||0,mirror=g(st,'mirror')||false,text=(g(st,'text')||'').trim();if(!text)continue;silk[s].push({text,x:tx,y:neg(ty),width:gW(st),fontFamily:g(st,'fontFamily')||'sans-serif',fontSize:g(st,'fontSize')||10,bold:g(st,'bold')||false,italic:g(st,'italic')||false,align:g(st,'alignMode')||0,rotation:g(st,'rotation')||0,reverse:g(st,'reverse')||false,expansion:g(st,'expansion')||0,mirror:s==='B'?!mirror:mirror});}
+for(const pl of polys){const s=mS(gL(pl));if(!s)continue;const svg=p2s(gP(pl),0,neg);if(svg)silk[s].push({type:'polyline',start:[0,0],end:[0,0],svgpath:svg,thickness:gW(pl),width:gW(pl)});}
+for(const f of fills){const s=mS(gL(f));if(!s)continue;const svg=cp2s(g(f,'complexPolygon'),0,neg);if(svg)silk[s].push({type:'polygon',start:[0,0],end:[0,0],svgpath:svg});}
+for(const st of strs){const s=mS(gL(st));if(!s)continue;const tx=g(st,'x')||0,ty=g(st,'y')||0,mirror=g(st,'mirror')||false,text=(g(st,'text')||'').trim();if(!text)continue;silk[s].push({text,x:tx,y:neg(ty),width:gW(st),fontFamily:g(st,'fontFamily')||'Arial',fontSize:g(st,'fontSize')||10,bold:g(st,'bold')||false,italic:g(st,'italic')||false,align:g(st,'alignMode')||0,rotation:g(st,'rotation')||0,reverse:g(st,'reverse')||false,expansion:g(st,'expansion')||0,mirror:s==='B'?!mirror:mirror});}
 
 // === BOM ===
 const skipped=[],hasCC={M:false,S:false},active=[];
@@ -5533,7 +5531,7 @@ let title='EasyEDA Pro Project',company='Unknown';
 try{title=(await eda.dmt_Board.getCurrentBoardInfo()).name||title;}catch(e){}
 try{company=(await eda.dmt_SelectControl.getCurrentDocumentInfo()).company||company;}catch(e){}
 const now=new Date(),date=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
-return {ibom_version:'v2.10.0-1647296\n',edges_bbox,edges,drawings:{silkscreen:{F:silk['F'],B:silk['B']},fabrication:{F:[],B:[]}},footprints,metadata:{title,revision:'0',company,date},tracks,zones,pads:pads.map(p=>cvtPad(p)),nets,bom};}
+return {ibom_version:'v2.10.0-1647296\n',edges_bbox,edges,drawings:{silkscreen:{F:silk['F'],B:silk['B']},fabrication:{F:[],B:[]}},footprints,metadata:{title,revision:'0',company,date},tracks,zones,pads:pads.reduce((a,p)=>{const v=cvtPad(p);if(v)a.push(v);return a;},[]),nets,bom};}
 
 // === Data fixer (from standalone viewer) ===
 function fixPcbData(data) {console.log(`[iBOM Export] 统计信息:'${data.bom?data.bom.both.length:0}BOM Group ${data.footprints.length}Footprints`);}
