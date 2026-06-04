@@ -1650,8 +1650,7 @@ var pcbdata = null;
 ///////////////////////////////////////////////
 /* Utility functions */
 
-var storagePrefix = 'KiCad_HTML_BOM__' + pcbdata.metadata.title + '__' +
-  pcbdata.metadata.revision + '__#';
+var storagePrefix;
 var storage;
 
 function initStorage(key) {
@@ -1673,6 +1672,7 @@ function initStorage(key) {
 
 function readStorage(key) {
   if (storage) {
+    if (!storagePrefix) storagePrefix = 'KiCad_HTML_BOM__' + pcbdata?pcbdata.metadata.title:'' + '__' + pcbdata?pcbdata.metadata.revision:'' + '__#'
     return storage.getItem(storagePrefix + key);
   } else {
     return null;
@@ -1681,6 +1681,7 @@ function readStorage(key) {
 
 function writeStorage(key, value) {
   if (storage) {
+    if (!storagePrefix) storagePrefix = 'KiCad_HTML_BOM__' + pcbdata?pcbdata.metadata.title:'' + '__' + pcbdata?pcbdata.metadata.revision:'' + '__#'
     storage.setItem(storagePrefix + key, value);
   }
 }
@@ -2062,6 +2063,7 @@ function resetSettings() {
     var keys = [];
     for (var i = 0; i < storage.length; i++) {
       var key = storage.key(i);
+      if (!storagePrefix) storagePrefix = 'KiCad_HTML_BOM__' + pcbdata?pcbdata.metadata.title:'' + '__' + pcbdata?pcbdata.metadata.revision:'' + '__#'
       if (key.startsWith(storagePrefix)) keys.push(key);
     }
     for (var key of keys) storage.removeItem(key);
@@ -2736,16 +2738,19 @@ function drawProText(ctx, item, color) {
   ctx.save(); ctx.fillStyle = color;
   ctx.translate(item.x || 0, item.y || 0);
   ctx.lineWidth = item.width;
-  if (item.rotation) ctx.rotate(-item.rotation * Math.PI / 180);
   if (item.mirror) ctx.scale(-1, 1);
+  if (item.rotation) ctx.rotate(-item.rotation * Math.PI / 180);
   var fontSize = item.fontSize || 10;
   if (item.fontFamily=='default') item.fontFamily = 'Arial';
   ctx.font = (item.bold?"bold ":"") + (item.italic?"italic ":"") + fontSize + "px " + item.fontFamily || "Arial";
-  ctx.textBaseline = item.align<=3?'top':item.align<=6?'middle':'bottom';
-  ctx.textAlign = item.align%3==1?'left':item.align%3==2?'center':'right';
+  ctx.textBaseline = item.align%3==1?'top':item.align%3==2?'middle':'bottom';
+  ctx.textAlign = item.align<=3?'left':item.align<=6?'center':'right';
   if (item.reverse) {
     const metrics = ctx.measureText(item.text);
-    ctx.fillRect(ctx.textAlign=='left'?0:ctx.textAlign=='center'?-(metrics.width+item.expansion)/2:metrics.width+item.expansion, ctx.textBaseline=='top'?0:ctx.textBaseline=='middle'?-(fontSize*1.3+item.expansion)/2-10:-(fontSize*1.3+item.expansion)-10, metrics.width+item.expansion, fontSize*1.3+item.expansion);
+    const fWidth=metrics.width;
+    const fOffset=(metrics.fontBoundingBoxAscent-[2,0,1][(item.align)%3]*fontSize/2)/2;
+    const fHeight=fontSize;
+    ctx.fillRect(ctx.textAlign=='left'?0:ctx.textAlign=='center'?-(fWidth+item.expansion)/2:-(fWidth+item.expansion), ctx.textBaseline=='top'?-fOffset:ctx.textBaseline=='middle'?-(fHeight+item.expansion)/2-fOffset:-(fHeight+item.expansion)-fOffset, fWidth+item.expansion, fHeight+item.expansion);
     ctx.globalCompositeOperation = 'destination-out';
     ctx.fillStyle = '#000'
   }
@@ -2905,7 +2910,6 @@ function drawNets(canvas, layer, highlight) {
       drawPadHole(ctx, pad, padHoleColor);
     }
   }
-
   if (highlight && settings.renderTracks) {
     // draw via
     var hasHole = (track) => (
@@ -5174,19 +5178,25 @@ function arcC(px,py,x,y,a){
   return`A ${r},${r} 0 ${aa>Math.PI?1:0},${a>0?0:1} ${x},${y}`;
 }
 // SVG rounded rect
-function rrP(x,y,w,h,rot,rx,ry){
+function rrP(ca){
+  const rx=ca[ca.length-1].x,ry=ca[ca.length-1].y;
+  if (ca.length<8) return `M ${ca[0].x},${ca[0].y} L ${ca[1].x},${ca[1].y} L ${ca[2].x},${ca[2].y} L ${ca[3].x},${ca[3].y} Z`;
+  return`M ${ca[0].x},${ca[0].y} L ${ca[1].x},${ca[1].y} A ${rx},${ry} 0 0,1 ${ca[2].x},${ca[2].y} L ${ca[3].x},${ca[3].y} A ${rx},${ry} 0 0,1 ${ca[4].x},${ca[4].y} L ${ca[5].x},${ca[5].y} A ${rx},${ry} 0 0,1 ${ca[6].x},${ca[6].y} L ${ca[7].x},${ca[7].y} A ${rx},${ry} 0 0,1 ${ca[0].x},${ca[0].y} Z`;
+}
+function rrC(x,y,w,h,rot,rx,ry){
   // If one radius is 0, use the other (Pro sometimes stores radius in only one)
   if(rx===0&&ry!==0)rx=ry;
   if(ry===0&&rx!==0)ry=rx;
   rx=Math.min(rx,w/2);ry=Math.min(ry,h/2);
   var rad=rot*Math.PI/180;
   var cosR=Math.cos(rad),sinR=Math.sin(rad);
-  if(rx===0&&ry===0)return`M ${x},${y} L ${x+w*cosR},${y-w*sinR} L ${x+w*cosR+h*sinR},${y+h*cosR-w*sinR} L ${x+h*sinR},${y+h*cosR} Z`;
-  return`M ${x+rx*cosR},${y-rx*sinR} L ${x+w*cosR-rx*cosR},${y-w*sinR+rx*sinR} A ${rx},${ry} 0 0,1 ${x+w*cosR+ry*sinR},${y-w*sinR+ry*cosR} L ${x+w*cosR+h*sinR-ry*sinR},${y+h*cosR-w*sinR-ry*cosR} A ${rx},${ry} 0 0,1 ${x+w*cosR+h*sinR-rx*cosR},${y+h*cosR-w*sinR+rx*sinR} L ${x+h*sinR+rx*cosR},${y+h*cosR-rx*sinR} A ${rx},${ry} 0 0,1 ${x+h*sinR-ry*sinR},${y+h*cosR-ry*cosR} L ${x+ry*sinR},${y+ry*cosR} A ${rx},${ry} 0 0,1 ${x+rx*cosR},${y-rx*sinR} Z`;
+  if(rx===0&&ry===0)return[{x:x,y:y},{x:x+w*cosR,y:y+w*sinR},{x:x+w*cosR+h*sinR,y:y-h*cosR+w*sinR},{x:x+h*sinR,y:y-h*cosR},{x:rx,y:ry}];
+  return [{x:x+rx*cosR,y:y+rx*sinR},{x:x+w*cosR-rx*cosR,y:y+w*sinR-rx*sinR},{x:x+w*cosR+ry*sinR,y:y+w*sinR-ry*cosR},{x:x+w*cosR+h*sinR-ry*sinR,y:y-h*cosR+w*sinR+ry*cosR},
+          {x:x+w*cosR+h*sinR-rx*cosR,y:y-h*cosR+w*sinR-rx*sinR},{x:x+h*sinR+rx*cosR,y:y-h*cosR+rx*sinR},{x:x+h*sinR-ry*sinR,y:y-h*cosR+ry*cosR},{x:x+ry*sinR,y:y-ry*cosR},{x:rx,y:ry}];
 }
 
 // Polygon→SVG. fy: function to transform Y (identity or negate)
-function p2s(d,fr,fy,gx,gy){
+function p2s(d,fy,gx,gy){
   if(!d||d.length===0)return'';
   if(!fy)fy=function(v){return -v;};
   if(!gx)gx=function(lx,ly){return lx};
@@ -5195,25 +5205,24 @@ function p2s(d,fr,fy,gx,gy){
   while(i<d.length){const c=d[i];
     if(typeof c==='string'){const cmd=c.toUpperCase();
       if(cmd==='CIRCLE'&&i+3<d.length){const cx=gx(d[i+1],d[i+2]),cy=gy(d[i+1],d[i+2]),r=d[i+3];i+=4;P.push(`M ${cx+r},${cy} A ${r},${r} 0 1,0 ${cx-r},${cy} A ${r},${r} 0 1,0 ${cx+r},${cy}`);px=cx;py=cy;f=false;}
-      else if(cmd==='R'&&i+6<d.length){const rx=gx(d[i+1],d[i+2]),ry=gy(d[i+1],d[i+2]),rw=d[i+3],rh=d[i+4],rot=d[i+5],round=d[i+6];i+=7;P.push(rrP(rx,ry,rw,rh,fr+rot,round,round));px=rx;py=ry;f=false;}
-      else if(cmd==='ARC'&&i+3<d.length){const ad=d[i+1],ax=gx(d[i+2],d[i+3]),ay=gy(d[i+2],d[i+3]),ar=ad*Math.PI/180;i+=4;if(!f)P.push(arcC(px,py,ax,ay,ar));px=ax;py=ay;}
-      else if(cmd==='CARC'&&i+3<d.length){const ad=d[i+1],ax=gx(d[i+2],d[i+3]),ay=gy(d[i+2],d[i+3]),ar=ad*Math.PI/180;i+=4;if(!f)P.push(arcC(px,py,ax,ay,ar));px=ax;py=ay;}
+      else if(cmd==='R'&&i+6<d.length){const ct=rrC(d[i+1],d[i+2],d[i+3],d[i+4],d[i+5],d[i+6],d[i+6]);ca=ct.map(s=>{return{x:gx(s.x,s.y),y:gy(s.x,s.y)};});ca[ca.length-1]=ct[ct.length-1];i+=7;P.push(rrP(ca));px=ca[0].x;py=ca[0].y;f=false;}
+      else if((cmd==='ARC'||cmd==='CARC')&&i+3<d.length){const ad=d[i+1],ax=gx(d[i+2],d[i+3]),ay=gy(d[i+2],d[i+3]),ar=ad*Math.PI/180;i+=4;if(!f)P.push(arcC(px,py,ax,ay,ar));px=ax;py=ay;}
       else if(cmd==='L'&&i+2<d.length){const lx=gx(d[i+1],d[i+2]),ly=gy(d[i+1],d[i+2]);i+=3;P.push(f?`M ${lx},${ly}`:`L ${lx},${ly}`);px=lx;py=ly;f=false;}
-      else if(cmd==='C'&&i+6<d.length){const cx2=gx(d[i+1],d[i+2]),cy2=gy(d[i+1],d[i+2]),cx3=gx(d[i+3],d[i+4]),cy3=gy(d[i+3],d[i+4]),cx4=gx(d[i+5],d[i+6]),cy4=gy(d[i+5],d[i+6]);i+=7;P.push(f?`M ${cx2},${cy2}`:`L ${cx2},${ly2} ${cx3},${ly3} ${cx4},${ly4}`);px=cx4;py=cy4;f=false}
+      else if(cmd==='C'&&i+6<d.length){const cx2=gx(d[i+1],d[i+2]),cy2=gy(d[i+1],d[i+2]),cx3=gx(d[i+3],d[i+4]),cy3=gy(d[i+3],d[i+4]),cx4=gx(d[i+5],d[i+6]),cy4=gy(d[i+5],d[i+6]);i+=7;if(!P)P.push(`M ${px},${py} L ${cx2},${cy2} ${cx3},${cy3} ${cx4},${cy4}`);px=cx4;py=cy4;f=false}
       else{i++;}}
     else if(typeof c==='number'&&i+1<d.length){const nx=gx(c,d[i+1]),ny=gy(c,d[i+1]);i+=2;P.push(f?`M ${nx},${ny}`:`L ${nx},${ny}`);px=nx;py=ny;f=false;}
     else{i++;}}
   return P.join(' ');
 }
-function cp2s(cp,fr,fy,gx,gy){
+function cp2s(cp,fy,gx,gy){
   if(!cp)return'';
   if(!Array.isArray(cp)&&typeof cp==='object'){
     if(Array.isArray(cp.complexPolygon))cp=cp.complexPolygon;
     else if(Array.isArray(cp.polygon))cp=cp.polygon;
     else{try{cp=Array.from(cp);}catch(e){return'';}}}
   if(!Array.isArray(cp)||cp.length===0)return'';
-  if(Array.isArray(cp)&&!Array.isArray(cp[0])) return p2s(cp,fr,fy,gx,gy); 
-  return cp.map(s=>{return p2s(s,fr,fy,gx,gy);}).filter(Boolean).join(' ');
+  if(Array.isArray(cp)&&!Array.isArray(cp[0])) return p2s(cp,fy,gx,gy); 
+  return cp.map(s=>{return p2s(s,fy,gx,gy);}).filter(Boolean).join(' ');
 }
 function neg(v){return -v;}  // Y-negate: Pro Y-up -> iBOM Y-down
 function nid(v){return v;}    // identity (unused, kept for reference)
@@ -5353,11 +5362,11 @@ for(var ci=0;ci<comp.length;ci++){
       if (item.type==='STRING'){
         var tpt=fpToGlobal(item.x,item.y,cx2,cy2,rot2,clayer);
         silk[pcbSide==='Y'?clayer:pcbSide].push({text:item.text,x:tpt[0],y:tpt[1],width:item.width||1,fontFamily:item.fontFamily||'Arial',fontSize:item.fontSize||10,bold:item.bold,italic:item.italic,
-          align:item.align,rotation:clayer==='B'?item.rotation+rot2-180:item.rotation+rot2,reverse:item.reverse||false,expansion:item.expansion||0,mirror:clayer==='B'?!item.mirror:item.mirror});
+          align:item.align,rotation:clayer==='B'?item.rotation-rot2:item.rotation+rot2,reverse:item.reverse||false,expansion:item.expansion||0,mirror:clayer==='B'?!item.mirror:item.mirror});
         fpSilkCount++;
         return
       }
-      var svg=cp2s(item.path,rot2,neg,function(lx,ly){return fpToGlobal(lx,ly,cx2,cy2,rot2,clayer)[0];},function(lx,ly){return fpToGlobal(lx,ly,cx2,cy2,rot2,clayer)[1];});
+      var svg=cp2s(item.path,neg,function(lx,ly){return fpToGlobal(lx,ly,cx2,cy2,rot2,clayer)[0];},function(lx,ly){return fpToGlobal(lx,ly,cx2,cy2,rot2,clayer)[1];});
       if(svg){
         silk[pcbSide==='Y'?clayer:pcbSide].push({type:item.type==='FILL'?'polygon':'polyline',start:[0,0],end:[0,0],svgpath:svg,thickness:item.width||1,width:item.width||1,primitiveId:fpId});
         fpSilkCount++;
@@ -5372,8 +5381,8 @@ const edges=[];
 const eids=[];
 for(const l of lines){if(!isOL(gL(l)))continue;const sx=g(l,'startX'),sy=neg(g(l,'startY')),ex=g(l,'endX'),ey=neg(g(l,'endY'));eids.push(g(l,'primitiveId'));edges.push({type:'polyline',start:[0,0],end:[0,0],svgpath:`M ${sx},${sy} L ${ex},${ey}`,thickness:gW(l),width:gW(l)});}
 for(const a of arcs){if(!isOL(gL(a)))continue;const sx=g(a,'startX'),sy=neg(g(a,'startY')),ex=g(a,'endX'),ey=neg(g(a,'endY')),ar=g(a,'arcAngle')*Math.PI/180;eids.push(g(a,'primitiveId'));edges.push({type:'polyline',start:[0,0],end:[0,0],svgpath:`M ${sx},${sy} ${arcC(sx,sy,ex,ey,ar)}`,thickness:gW(a),width:gW(a)});}
-for(const pl of polys){if(!isOL(gL(pl)))continue;const svg=p2s(gP(pl),0,neg);if(svg){eids.push(g(pl,'primitiveId'));edges.push({type:'polyline',start:[0,0],end:[0,0],svgpath:svg,thickness:gW(pl),width:gW(pl)});}}
-for(const fl of fills){if(!isML(gL(fl)))continue;const svg=cp2s(g(fl,'complexPolygon'),0,neg);if(svg){eids.push(g(fl,'primitiveId'));edges.push({type:'polyline',start:[0,0],end:[0,0],svgpath:svg,thickness:gW(fl),width:gW(fl)});}}
+for(const pl of polys){if(!isOL(gL(pl)))continue;const svg=p2s(gP(pl),neg);if(svg){eids.push(g(pl,'primitiveId'));edges.push({type:'polyline',start:[0,0],end:[0,0],svgpath:svg,thickness:gW(pl),width:gW(pl)});}}
+for(const fl of fills){if(!isML(gL(fl)))continue;const svg=cp2s(g(fl,'complexPolygon'),neg);if(svg){eids.push(g(fl,'primitiveId'));edges.push({type:'polyline',start:[0,0],end:[0,0],svgpath:svg,thickness:gW(fl),width:gW(fl)});}}
 ['O','M'].forEach(function(fs){silk[fs].forEach(function(fl){eids.push(fl.primitiveId);edges.push({type:'polyline',start:[0,0],end:[0,0],svgpath:fl.svgpath,thickness:fl.width,width:fl.width});})})
 let edges_bbox={minx:-1000,miny:-1000,maxx:1000,maxy:1000};
 if(eids.length>0){const MG=5,eb=await eda.pcb_Primitive.getPrimitivesBBox(eids);edges_bbox={minx:eb.minX-MG,miny:Math.min(-eb.minY,-eb.maxY)-MG,maxx:eb.maxX+MG,maxy:Math.max(-eb.minY,-eb.maxY)+MG};}
@@ -5430,7 +5439,7 @@ function cvtPad(pad){
   } else if(shapeType==='POLYLINE_COMPLEX_POLYGON'||shapeType==='POLYGON'){
     // Complex polygon: [type, complexPolygon]
     shape='custom';size=[0,0];
-    const cpData=ps[1];if(cpData)svgpath=cp2s(cpData,0,neg,function(lx,ly){return lx-px;},function(lx,ly){return neg(ly+py);});
+    const cpData=ps[1];if(cpData)svgpath=cp2s(cpData,neg,function(lx,ly){return lx-px;},function(lx,ly){return neg(ly+py);});
     rotate=0;
   } else {
     // Fallback: treat as oval
@@ -5467,8 +5476,8 @@ console.log('[iBOM Export] 转换走线...');
 const tracks={F:[],B:[]};
 for(const l of lines){const ls=mC(gL(l));if(!ls.length)continue;var lw=gW(l),net=gN(l);const t={type:'polyline',start:[0,0],end:[0,0],svgpath:`M ${g(l,'startX')},${neg(g(l,'startY'))} L ${g(l,'endX')},${neg(g(l,'endY'))}`,thickness:lw,width:lw,net};for(const s of ls)tracks[s].push(t);}
 for(const a of arcs){const ls=mC(gL(a));if(!ls.length)continue;var aw=gW(a),net=gN(a);const sx=g(a,'startX'),sy=neg(g(a,'startY')),ex=g(a,'endX'),ey=neg(g(a,'endY')),ar=g(a,'arcAngle')*Math.PI/180;const t={type:'polyline',start:[0,0],end:[0,0],svgpath:`M ${sx},${sy} ${arcC(sx,sy,ex,ey,ar)}`,thickness:aw,width:aw,net};for(const s of ls)tracks[s].push(t);}
-for(const pl of polys){const ls=mC(gL(pl));if(!ls.length)continue;const svg=p2s(gP(pl),0,neg);if(!svg)continue;for(const s of ls)tracks[s].push({type:'polyline',start:[0,0],end:[0,0],svgpath:svg,thickness:gW(pl),width:gW(pl),net:gN(pl)});}
-for(const f of fills){const ls=mC(gL(f));if(!ls.length)continue;const svg=cp2s(g(f,'complexPolygon'),0,neg);if(!svg)continue;for(const s of ls)tracks[s].push({type:'polygon',start:[0,0],end:[0,0],svgpath:svg,net:gN(f)});}
+for(const pl of polys){const ls=mC(gL(pl));if(!ls.length)continue;const svg=p2s(gP(pl),neg);if(!svg)continue;for(const s of ls)tracks[s].push({type:'polyline',start:[0,0],end:[0,0],svgpath:svg,thickness:gW(pl),width:gW(pl),net:gN(pl)});}
+for(const f of fills){const ls=mC(gL(f));if(!ls.length)continue;const svg=cp2s(g(f,'complexPolygon'),neg);if(!svg)continue;for(const s of ls)tracks[s].push({type:'polygon',start:[0,0],end:[0,0],svgpath:svg,net:gN(f)});}
 for(const st of strs){const ls=mC(gL(st));if(!ls.length)continue;const tx=g(st,'x')||0,ty=g(st,'y')||0,mirror=g(st,'mirror')||false,text=(g(st,'text')||'').trim();if(!text)continue;for(const s of ls)tracks[s].push({text,x:tx,y:neg(ty),width:gW(st),fontFamily:g(st,'fontFamily')||'Arial',fontSize:g(st,'fontSize')||10,bold:g(st,'bold')||false,italic:g(st,'italic')||false,align:g(st,'alignMode')||0,rotation:g(st,'rotation')||0,reverse:g(st,'reverse')||false,expansion:g(st,'expansion')||0,mirror:s==='B'?!mirror:mirror});}
 for(const v of vias){const vx=g(v,'x')||0,vy=neg(g(v,'y')||0);const vi={start:[vx,vy],end:[vx,vy],drillsize:g(v,'holeDiameter')||5,width:g(v,'diameter')||10,net:gN(v)};tracks.F.push(vi);tracks.B.push(vi);}
 
@@ -5477,14 +5486,14 @@ const pourMap={};for(const p of pours){const pid=g(p,'primitiveId');if(pid)pourM
 const zones={F:[],B:[]};
 for(const pd of poureds){const pid=g(pd,'pourPrimitiveId');const pour=pourMap[pid];if(!pour)continue;const ls=mC(gL(pour));if(!ls.length)continue;const pf=g(pd,'pourFills');if(!pf||!Array.isArray(pf))continue;const net=gN(pour);for(const fill of pf){
   if(fill.fill===false)continue;
-  var svg=cp2s(fill.path,0,neg,function(lx,ly){return lx*10;},function(lx,ly){return neg(ly*10);});
+  var svg=cp2s(fill.path,neg,function(lx,ly){return lx*10;},function(lx,ly){return neg(ly*10);});
   if (!svg)continue;for(const s of ls)zones[s].push({svgpath:svg,net});
 }}
 
 for(const l of lines){const s=mS(gL(l));if(!s)continue;silk[s].push({type:'polyline',start:[0,0],end:[0,0],svgpath:`M ${g(l,'startX')},${neg(g(l,'startY'))} L ${g(l,'endX')},${neg(g(l,'endY'))}`,thickness:gW(l),width:gW(l)});}
 for(const a of arcs){const s=mS(gL(a));if(!s)continue;const sx=g(a,'startX'),sy=neg(g(a,'startY')),ex=g(a,'endX'),ey=neg(g(a,'endY'));silk[s].push({type:'polyline',start:[0,0],end:[0,0],svgpath:`M ${sx},${sy} ${arcC(sx,sy,ex,ey,g(a,'arcAngle')*Math.PI/180)}`,thickness:gW(a),width:gW(a)});}
-for(const pl of polys){const s=mS(gL(pl));if(!s)continue;const svg=p2s(gP(pl),0,neg);if(svg)silk[s].push({type:'polyline',start:[0,0],end:[0,0],svgpath:svg,thickness:gW(pl),width:gW(pl)});}
-for(const f of fills){const s=mS(gL(f));if(!s)continue;const svg=cp2s(g(f,'complexPolygon'),0,neg);if(svg)silk[s].push({type:'polygon',start:[0,0],end:[0,0],svgpath:svg});}
+for(const pl of polys){const s=mS(gL(pl));if(!s)continue;const svg=p2s(gP(pl),neg);if(svg)silk[s].push({type:'polyline',start:[0,0],end:[0,0],svgpath:svg,thickness:gW(pl),width:gW(pl)});}
+for(const f of fills){const s=mS(gL(f));if(!s)continue;const svg=cp2s(g(f,'complexPolygon'),neg);if(svg)silk[s].push({type:'polygon',start:[0,0],end:[0,0],svgpath:svg});}
 for(const st of strs){const s=mS(gL(st));if(!s)continue;const tx=g(st,'x')||0,ty=g(st,'y')||0,mirror=g(st,'mirror')||false,text=(g(st,'text')||'').trim();if(!text)continue;silk[s].push({text,x:tx,y:neg(ty),width:gW(st),fontFamily:g(st,'fontFamily')||'Arial',fontSize:g(st,'fontSize')||10,bold:g(st,'bold')||false,italic:g(st,'italic')||false,align:g(st,'alignMode')||0,rotation:g(st,'rotation')||0,reverse:g(st,'reverse')||false,expansion:g(st,'expansion')||0,mirror:s==='B'?!mirror:mirror});}
 
 // === BOM ===
@@ -5527,8 +5536,8 @@ function grp(items){const m=new Map();for(const it of items){const key=it.name+'
 function grpf(items){const m=new Map();for(const it of items){const key=it.name+'|'+it.fpName+'|'+it.value+'|'+it.manufacturerId+'|'+it.supplierId;if(!m.has(key))m.set(key,[]);m.get(key).push(it);}const rows={};for(const[key,its]of m){for(const it of its){rows[refIdx[it.designator]!==undefined?refIdx[it.designator]:it.designator]=[(it.value||it.name)+(it.valtage?'/'+it.valtage:''),it.fpName,it.manufacturerId,it.supplierId]}}; return rows;}
 const bom={both:grp(active),fields:grpf(active),F:grp(active.filter(i=>i.layer==='F')),B:grp(active.filter(i=>i.layer==='B')),skipped,customColumns:cc};
 
-let title='EasyEDA Pro Project',company='Unknown';
-try{title=(await eda.dmt_Board.getCurrentBoardInfo()).name||title;}catch(e){}
+let title='EasyEDA Pro Project',company='OSHWHub';
+try{title=(await eda.dmt_Board.getCurrentBoardInfo()).name;}catch(e){try{title=(await eda.dmt_Pcb.getCurrentPcbInfo()).name||title;}catch(e){}}
 try{company=(await eda.dmt_SelectControl.getCurrentDocumentInfo()).company||company;}catch(e){}
 const now=new Date(),date=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
 return {ibom_version:'v2.10.0-1647296\n',edges_bbox,edges,drawings:{silkscreen:{F:silk['F'],B:silk['B']},fabrication:{F:[],B:[]}},footprints,metadata:{title,revision:'0',company,date},tracks,zones,pads:pads.reduce((a,p)=>{const v=cvtPad(p);if(v)a.push(v);return a;},[]),nets,bom};}
