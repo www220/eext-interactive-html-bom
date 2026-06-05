@@ -26,7 +26,7 @@ export function showIBOM(): void {
 export async function exportHTML(): Promise<void> {
 	// Set export flag, iframe will check it on init
 	await eda.sys_Storage.setExtensionUserConfig('ibom_export_mode', 'true');
-	eda.sys_IFrame.openIFrame('/iframe/index.html', 400, 200, 'ibom-export', {
+	eda.sys_IFrame.openIFrame('/iframe/index.html', 800, 50, 'ibom-export', {
 		maximizeButton: false,
 		minimizeButton: false,
 		title: '正在导出 iBOM...',

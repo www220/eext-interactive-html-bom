@@ -2798,6 +2798,10 @@ function drawTracks(canvas, layer, defaultColor, highlight) {
           ctx.stroke(new Path2D(track.svgpath));
           continue
         }
+      } else if (track.text !== undefined && !track.type) {
+        var style = getComputedStyle(topmostdiv);
+        drawProText(ctx, track, style.getPropertyValue('--silkscreen-text-color'));
+        continue;
       }
       ctx.beginPath();
       if ('radius' in track) {
@@ -5162,7 +5166,7 @@ function gL(o){return g(o,'layer');}
 function gN(o){return g(o,'net')||'';}
 function gW(o){return g(o,'lineWidth')||1;}
 function gP(o){var p=g(o,'polygon');if(!p)return[];if(!Array.isArray(p)&&typeof p==='object'&&Array.isArray(p.polygon))return p.polygon;return Array.isArray(p)?p:[];}
-const CM={1:['F'],2:['B'],12:['F','B']},SM={3:'F',4:'B'};
+const CM={1:['F'],2:['B'],5:['F'],6:['B'],12:['F','B']},SM={3:'F',4:'B'};
 function mC(id){return CM[id]||[];}
 function mS(id){return SM[id]!==undefined?SM[id]:null;}
 function isOL(id){return id===11;}
@@ -5476,9 +5480,9 @@ console.log('[iBOM Export] 转换走线...');
 const tracks={F:[],B:[]};
 for(const l of lines){const ls=mC(gL(l));if(!ls.length)continue;var lw=gW(l),net=gN(l);const t={type:'polyline',start:[0,0],end:[0,0],svgpath:`M ${g(l,'startX')},${neg(g(l,'startY'))} L ${g(l,'endX')},${neg(g(l,'endY'))}`,thickness:lw,width:lw,net};for(const s of ls)tracks[s].push(t);}
 for(const a of arcs){const ls=mC(gL(a));if(!ls.length)continue;var aw=gW(a),net=gN(a);const sx=g(a,'startX'),sy=neg(g(a,'startY')),ex=g(a,'endX'),ey=neg(g(a,'endY')),ar=g(a,'arcAngle')*Math.PI/180;const t={type:'polyline',start:[0,0],end:[0,0],svgpath:`M ${sx},${sy} ${arcC(sx,sy,ex,ey,ar)}`,thickness:aw,width:aw,net};for(const s of ls)tracks[s].push(t);}
-for(const pl of polys){const ls=mC(gL(pl));if(!ls.length)continue;const svg=p2s(gP(pl),neg);if(!svg)continue;for(const s of ls)tracks[s].push({type:'polyline',start:[0,0],end:[0,0],svgpath:svg,thickness:gW(pl),width:gW(pl),net:gN(pl)});}
-for(const f of fills){const ls=mC(gL(f));if(!ls.length)continue;const svg=cp2s(g(f,'complexPolygon'),neg);if(!svg)continue;for(const s of ls)tracks[s].push({type:'polygon',start:[0,0],end:[0,0],svgpath:svg,net:gN(f)});}
-for(const st of strs){const ls=mC(gL(st));if(!ls.length)continue;const tx=g(st,'x')||0,ty=g(st,'y')||0,mirror=g(st,'mirror')||false,text=(g(st,'text')||'').trim();if(!text)continue;for(const s of ls)tracks[s].push({text,x:tx,y:neg(ty),width:gW(st),fontFamily:g(st,'fontFamily')||'Arial',fontSize:g(st,'fontSize')||10,bold:g(st,'bold')||false,italic:g(st,'italic')||false,align:g(st,'alignMode')||0,rotation:g(st,'rotation')||0,reverse:g(st,'reverse')||false,expansion:g(st,'expansion')||0,mirror:s==='B'?!mirror:mirror});}
+for(const pl of polys){const ls=mC(gL(pl));if(!ls.length)continue;const svg=p2s(gP(pl),neg);if(!svg)continue;const t={type:'polyline',start:[0,0],end:[0,0],svgpath:svg,thickness:gW(pl),width:gW(pl),net:gN(pl)};for(const s of ls)tracks[s].push(t);}
+for(const f of fills){const ls=mC(gL(f));if(!ls.length)continue;const svg=cp2s(g(f,'complexPolygon'),neg);if(!svg)continue;const t={type:'polygon',start:[0,0],end:[0,0],svgpath:svg,net:gN(f)};for(const s of ls)tracks[s].push(t);}
+for(const st of strs){const ls=mC(gL(st));if(!ls.length)continue;const tx=g(st,'x')||0,ty=g(st,'y')||0,mirror=g(st,'mirror')||false,text=(g(st,'text')||'').trim();if(!text)continue;const t={text,start:[0,0],end:[0,0],x:tx,y:neg(ty),width:gW(st),fontFamily:g(st,'fontFamily')||'Arial',fontSize:g(st,'fontSize')||10,bold:g(st,'bold')||false,italic:g(st,'italic')||false,align:g(st,'alignMode')||0,rotation:g(st,'rotation')||0,reverse:g(st,'reverse')||false,expansion:g(st,'expansion')||0};for(const s of ls){t.mirror=(ls==='B'||ls.includes('B'))?!mirror:mirror;tracks[s].push(t);}}
 for(const v of vias){const vx=g(v,'x')||0,vy=neg(g(v,'y')||0);const vi={start:[vx,vy],end:[vx,vy],drillsize:g(v,'holeDiameter')||5,width:g(v,'diameter')||10,net:gN(v)};tracks.F.push(vi);tracks.B.push(vi);}
 
 // === ZONES (ALL Y negated) ===
@@ -5546,11 +5550,35 @@ return {ibom_version:'v2.10.0-1647296\n',edges_bbox,edges,drawings:{silkscreen:{
 function fixPcbData(data) {console.log(`[iBOM Export] 统计信息:'${data.bom?data.bom.both.length:0}BOM Group ${data.footprints.length}Footprints`);}
 
 // === Auto-init ===
+async function compressWithStream(str) {
+  // 1. 将字符串编码为字节流
+  const stream = new CompressionStream('gzip'); // 或 'deflate'
+  const writer = stream.writable.getWriter();
+  writer.write(new TextEncoder().encode(str));
+  writer.close();
+  // 2. 读取压缩后的结果
+  const compressedBuffer = await new Response(stream.readable).arrayBuffer();
+  // 3. 转为 Base64 (或直接使用二进制)
+  return btoa(String.fromCharCode(...new Uint8Array(compressedBuffer)));
+}
+async function decompressString(compressedBase64String) {
+  // 1. 还原二进制数据：Base64 -> Uint8Array
+  const binaryString = atob(compressedBase64String);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {bytes[i] = binaryString.charCodeAt(i);}
+  // 2. 解压
+  const ds = new DecompressionStream('gzip'); // 格式一定要匹配
+  const decompressedStream = new Blob([bytes]).stream().pipeThrough(ds);
+  // 3. 转为对象
+  return JSON.parse(await new Response(decompressedStream).text());
+}
 document.addEventListener('DOMContentLoaded', async function() {
   // If pcbdata is already embedded (standalone HTML export), skip data collection
-  if (window.pcbdata && window.pcbdata.footprints) {
+  if (window.pcbdata && window.config) {
     var ov2 = document.getElementById('loading-overlay');
     if (ov2) ov2.style.display = 'none';
+    if (typeof window.pcbdata==='string') window.config = await decompressString(window.config);
+    if (typeof window.pcbdata==='string') window.pcbdata = await decompressString(window.pcbdata);
     initBOM();
     return;
   }
@@ -5592,10 +5620,10 @@ document.addEventListener('DOMContentLoaded', async function() {
     var templateFile = await eda.sys_FileSystem.getExtensionFile('/iframe/index.html');
     var templateHtml = await templateFile.text();
     // Embed pcbdata and config as JSON, escape </ to prevent script tag breakage
-    var pcbJson = JSON.stringify(data).replace(/<\//g, '<\\/');
-    var cfgJson = JSON.stringify(window.config).replace(/<\//g, '<\\/');
-    templateHtml = templateHtml.replace('var pcbdata = null;', 'var pcbdata = ' + pcbJson + ';');
-    templateHtml = templateHtml.replace('var config = {};', 'var config = ' + cfgJson + ';');
+    var pcbJson = await compressWithStream(JSON.stringify(data));
+    var cfgJson = await compressWithStream(JSON.stringify(window.config));
+    templateHtml = templateHtml.replace('var pcbdata = null;', 'var pcbdata = "' + pcbJson + '";');
+    templateHtml = templateHtml.replace('var config = {};', 'var config = "' + cfgJson + '";');
     var blob = new Blob([templateHtml], {type: 'text/html'});
     var filename = (data.metadata.title || 'ibom') + '.html';
     await eda.sys_FileSystem.saveFile(blob, filename);
