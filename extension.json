@@ -1,9 +1,9 @@
 {
 	"name": "interactive-html-bom",
 	"uuid": "94033c9338e84a498ef75cd91e7869eb",
-	"displayName": "交互式BOM(移植版)(2026.6.4)",
-	"description": "交互式 BOM 查看器，更新到2.10.0-1647296",
-	"version": "2.4.101",
+	"displayName": "交互式BOM(移植版)(2026.6.8)",
+	"description": "交互式 BOM 查看器，更新到v2.11.2-de7fad7",
+	"version": "2.4.102",
 	"publisher": "EasyEDA",
 	"engines": {
 		"eda": "^3.2.0"
